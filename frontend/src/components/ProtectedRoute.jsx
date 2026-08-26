@@ -18,8 +18,19 @@ export default function ProtectedRoute({ children, allowedRoles }) {
 
   if (!profile) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-gray-500">Loading profile...</p>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div className="bg-white p-6 rounded-lg shadow-md max-w-sm text-center">
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Profile Error</h3>
+          <p className="text-sm text-gray-600 mb-4">
+            Could not load profile. Please sign out and sign in again.
+          </p>
+          <button
+            onClick={() => useAuth().signOut()}
+            className="w-full bg-primary-600 text-white py-2 px-4 rounded hover:bg-primary-700 transition"
+          >
+            Sign Out
+          </button>
+        </div>
       </div>
     );
   }

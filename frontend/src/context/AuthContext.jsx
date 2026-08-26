@@ -12,7 +12,7 @@ export function AuthProvider({ children }) {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
+      if (session?.user) fetchProfile(session.user);
       else setLoading(false);
     });
 
@@ -21,7 +21,7 @@ export function AuthProvider({ children }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user.id);
+      if (session?.user) fetchProfile(session.user);
       else {
         setProfile(null);
         setLoading(false);
@@ -31,19 +31,61 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function fetchProfile(userId) {
-    const { data, error } = await supabase
-      .from("users_profile")
-      .select("*")
-      .eq("id", userId)
-      .single();
-
-    if (error) {
-      console.error("Error fetching profile:", error);
-      // Profile may not exist yet (e.g. email confirmation pending)
+  async function fetchProfile(userOrId) {
+    if (!userOrId) {
+      setProfile(null);
+      setLoading(false);
+      return;
     }
-    setProfile(data);
-    setLoading(false);
+
+    const userId = typeof userOrId === "string" ? userOrId : userOrId.id;
+    const userObj = typeof userOrId === "object" ? userOrId : user;
+
+    try {
+      const { data, error } = await supabase
+        .from("users_profile")
+        .select("*")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (data) {
+        setProfile(data);
+      } else {
+        console.warn("Profile not found in DB for user:", userId, error);
+        
+        const metaRole = userObj?.user_metadata?.role || "consumer";
+        const metaName =
+          userObj?.user_metadata?.full_name ||
+          userObj?.email?.split("@")[0] ||
+          "User";
+
+        const fallbackProfile = {
+          id: userId,
+          full_name: metaName,
+          role: metaRole,
+        };
+
+        // Try to auto-create missing profile
+        const { data: inserted } = await supabase
+          .from("users_profile")
+          .upsert(fallbackProfile)
+          .select("*")
+          .maybeSingle();
+
+        setProfile(inserted || fallbackProfile);
+      }
+    } catch (err) {
+      console.error("Error in fetchProfile:", err);
+      if (userObj) {
+        setProfile({
+          id: userId,
+          full_name: userObj?.user_metadata?.full_name || "User",
+          role: userObj?.user_metadata?.role || "consumer",
+        });
+      }
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function signUp(email, password, fullName, role = "consumer") {
@@ -60,15 +102,11 @@ export function AuthProvider({ children }) {
 
     if (error) throw error;
 
-    // The trigger on_auth_user_created creates the profile automatically.
     if (data.user) {
-      // If session exists, user is signed in immediately
       if (data.session) {
         await new Promise((r) => setTimeout(r, 300));
-        await fetchProfile(data.user.id);
+        await fetchProfile(data.user);
       }
-      // If no session, email confirmation is required — profile will be
-      // created when they confirm. Return info so caller can show message.
     }
 
     return data;
@@ -81,7 +119,7 @@ export function AuthProvider({ children }) {
     });
 
     if (error) throw error;
-    await fetchProfile(data.user.id);
+    await fetchProfile(data.user);
     return data;
   }
 
