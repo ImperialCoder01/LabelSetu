@@ -50,3 +50,6 @@ supabase/.temp/
 
 # Freebuff IDE
 .freebuff/
+
+# Supabase CLI temp
+supabase/supabase/
