@@ -23,12 +23,17 @@ from typing import Any
 # Load rules
 # -----------------------------------------------------------------------
 def load_rules() -> dict:
-    """Load compliance rules from docs/rules.json."""
-    rules_path = Path(__file__).parent.parent.parent / "docs" / "rules.json"
-    if not rules_path.exists():
-        raise FileNotFoundError(f"Rules file not found: {rules_path}")
-    with open(rules_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    """Load compliance rules from backend/rules.json or docs/rules.json."""
+    candidates = [
+        Path(__file__).parent.parent / "rules.json",
+        Path(__file__).parent.parent.parent / "docs" / "rules.json",
+    ]
+    for rules_path in candidates:
+        if rules_path.exists():
+            with open(rules_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+
+    raise FileNotFoundError("Rules file not found in backend/rules.json or docs/rules.json")
 
 
 # -----------------------------------------------------------------------

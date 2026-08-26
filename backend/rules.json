@@ -1,0 +1,169 @@
+{
+  "version": "2.0.0",
+  "standard": "Legal Metrology (Packaged Commodities) Rules, 2011",
+  "description": "8 mandatory declaration fields under Legal Metrology rules for pre-packaged commodities sold in India",
+  "fields": [
+    {
+      "id": "manufacturer_name_address",
+      "name": "Manufacturer Name & Address",
+      "severity": "Critical",
+      "keywords": [
+        "manufactured by",
+        "manufactured at",
+        "manufactured in",
+        "made by",
+        "produced by",
+        "packed by",
+        "packed at",
+        "packed in",
+        "marketed by",
+        "marketed at",
+        "imported by",
+        "imported by name and address",
+        "manufacturer",
+        "factory"
+      ],
+      "description": "Name and complete address of the manufacturer, packer, or importer must be declared"
+    },
+    {
+      "id": "product_name",
+      "name": "Product Name / Commodity Name",
+      "severity": "Critical",
+      "keywords": [
+        "product name",
+        "commodity name",
+        "product",
+        "commodity",
+        "brand name",
+        "brand",
+        "item name",
+        "name of commodity",
+        "trade name",
+        "name"
+      ],
+      "description": "Generic name or trade name of the product must be clearly visible"
+    },
+    {
+      "id": "net_quantity",
+      "name": "Net Quantity",
+      "severity": "Critical",
+      "keywords": [
+        "net quantity",
+        "net qty",
+        "net wt",
+        "net weight",
+        "quantity",
+        "net content",
+        "contents",
+        "net contents",
+        "standard weight",
+        "standard quantity"
+      ],
+      "units": [
+        "kg", "g", "gm", "mg", "kg",
+        "l", "lt", "ltr", "ltrs", "litre", "litres",
+        "ml", "mlt",
+        "m", "cm", "mm",
+        "pcs", "pieces", "nos", "count"
+      ],
+      "description": "Net quantity of the commodity in weight, volume, or number of units"
+    },
+    {
+      "id": "manufacturing_date",
+      "name": "Manufacturing Date",
+      "severity": "Critical",
+      "keywords": [
+        "manufacturing date",
+        "mfg date",
+        "mfd date",
+        "mfd",
+        "mfg",
+        "date of manufacture",
+        "date of manufacturing",
+        "manufactured on",
+        "made on",
+        "prod date",
+        "production date",
+        "date of production"
+      ],
+      "description": "Date of manufacturing or pre-packaging must be declared"
+    },
+    {
+      "id": "mrp",
+      "name": "Maximum Retail Price (MRP)",
+      "severity": "Critical",
+      "keywords": [
+        "mrp",
+        "maximum retail price",
+        "max retail price",
+        "mrp incl. of all taxes",
+        "mrp rs",
+        "retail price",
+        "maximum price"
+      ],
+      "currency_symbols": ["₹", "rs", "inr", "rupees"],
+      "description": "Maximum retail price inclusive of all taxes must be printed"
+    },
+    {
+      "id": "consumer_care_contact",
+      "name": "Consumer Care Contact",
+      "severity": "Minor",
+      "keywords": [
+        "consumer care",
+        "customer care",
+        "consumer complaint",
+        "complaint",
+        "helpline",
+        "toll free",
+        "toll-free",
+        "help line",
+        "contact us",
+        "feedback",
+        "email",
+        "phone",
+        "customer support",
+        "care line",
+        "care@",
+        "support@"
+      ],
+      "description": "Contact details (phone/email) for consumer complaints or feedback"
+    },
+    {
+      "id": "unit_sale_price",
+      "name": "Unit Sale Price",
+      "severity": "Minor",
+      "keywords": [
+        "unit sale price",
+        "sale price",
+        "selling price",
+        "unit price",
+        "price per unit",
+        "rsp",
+        "retail sale price"
+      ],
+      "description": "Unit sale price (price per kg, litre, or unit) as per declared net quantity"
+    },
+    {
+      "id": "country_of_origin",
+      "name": "Country of Origin",
+      "severity": "Critical",
+      "keywords": [
+        "country of origin",
+        "origin",
+        "made in",
+        "product of",
+        "manufactured in",
+        "imported from",
+        "produced in",
+        "country",
+        "origin country"
+      ],
+      "description": "Country of origin must be declared; for imports, the country must be clearly stated"
+    }
+  ],
+  "scoring": {
+    "critical_weight": 15,
+    "minor_weight": 5,
+    "description": "Each missing Critical field deducts 15 points; each missing Minor field deducts 5 points from base score of 100"
+  }
+}
