@@ -16,7 +16,7 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "groq/compound"
 
 
 def is_groq_available() -> bool:
