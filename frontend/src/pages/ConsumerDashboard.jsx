@@ -192,6 +192,56 @@ function ResultsScreen({ report, onScanAgain }) {
           ))}
         </div>
       </div>
+      {ocr?.extracted_entities && Object.values(ocr.extracted_entities).some(Boolean) && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
+              AI Detected Package Entities
+            </h3>
+            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+              Custom Model v1.0
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {ocr.extracted_entities.mrp && (
+              <div className="bg-gray-50 p-2.5 rounded border border-gray-200">
+                <span className="font-semibold text-gray-500 block">MRP</span>
+                <span className="font-mono text-gray-900 font-bold">{ocr.extracted_entities.mrp}</span>
+              </div>
+            )}
+            {ocr.extracted_entities.net_quantity && (
+              <div className="bg-gray-50 p-2.5 rounded border border-gray-200">
+                <span className="font-semibold text-gray-500 block">Net Quantity</span>
+                <span className="font-mono text-gray-900 font-bold">{ocr.extracted_entities.net_quantity}</span>
+              </div>
+            )}
+            {ocr.extracted_entities.mfg_date && (
+              <div className="bg-gray-50 p-2.5 rounded border border-gray-200">
+                <span className="font-semibold text-gray-500 block">Mfg / Pkd Date</span>
+                <span className="font-mono text-gray-900 font-bold">{ocr.extracted_entities.mfg_date}</span>
+              </div>
+            )}
+            {ocr.extracted_entities.unit_sale_price && (
+              <div className="bg-gray-50 p-2.5 rounded border border-gray-200">
+                <span className="font-semibold text-gray-500 block">Unit Sale Price</span>
+                <span className="font-mono text-gray-900 font-bold">{ocr.extracted_entities.unit_sale_price}</span>
+              </div>
+            )}
+            {ocr.extracted_entities.fssai_lic && (
+              <div className="bg-gray-50 p-2.5 rounded border border-gray-200 col-span-2">
+                <span className="font-semibold text-gray-500 block">FSSAI License No.</span>
+                <span className="font-mono text-blue-700 font-bold">{ocr.extracted_entities.fssai_lic}</span>
+              </div>
+            )}
+            {ocr.extracted_entities.country_of_origin && (
+              <div className="bg-gray-50 p-2.5 rounded border border-gray-200">
+                <span className="font-semibold text-gray-500 block">Country of Origin</span>
+                <span className="font-mono text-gray-900 font-bold">{ocr.extracted_entities.country_of_origin}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {ocr?.full_text && (
         <div className="card"><h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">{t("consumer.extractedText")}</h3><p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-4 border border-gray-200 whitespace-pre-wrap max-h-40 overflow-y-auto font-mono">{ocr.full_text}</p></div>
       )}

@@ -15,6 +15,7 @@ import os
 from typing import Optional
 
 import httpx
+import cv2
 from PIL import Image
 
 from config import settings
@@ -74,7 +75,7 @@ def _extract_cloud(image_bytes: bytes) -> str:
     headers = {"apikey": _ocr_space_api_key()}
 
     try:
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=60.0) as client:
             response = client.post(url, data=payload, headers=headers)
             response.raise_for_status()
 
@@ -109,36 +110,41 @@ def _extract_local(image_bytes: bytes) -> str:
     """
     import numpy as np
 
-    image = Image.open(io.BytesIO(image_bytes))
+    image_array = np.frombuffer(image_bytes, np.uint8)
+    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
-    # EasyOCR expects RGB
-    if image.mode != "RGB":
-        image = image.convert("RGB")
-
-    image_array = np.array(image)
+    if image is None:
+        logger.error("Failed to decode image bytes")
+        return ""
 
     reader = _get_reader()
-    results = reader.readtext(image_array)
+    results = reader.readtext(image)
 
-    # Filter by confidence and join
-    extracted = [text for (_, text, confidence) in results if confidence > 0.3]
-    return " ".join(extracted)
+    # results is a list of (bbox, text, prob)
+    texts = [text for (_, text, prob) in results if prob > 0.3]
+    return " ".join(texts)
 
 
 def _extract_local_with_scores(image_bytes: bytes) -> dict:
-    """Run EasyOCR and return detections with bounding boxes and confidence."""
+    """Run EasyOCR and return detections with confidence and bounding boxes."""
     import numpy as np
 
-    image = Image.open(io.BytesIO(image_bytes))
-    if image.mode != "RGB":
-        image = image.convert("RGB")
+    image_array = np.frombuffer(image_bytes, np.uint8)
+    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
-    image_array = np.array(image)
+    if image is None:
+        return {
+            "provider": "local",
+            "full_text": "",
+            "detections": [],
+            "average_confidence": 0.0,
+        }
+
     reader = _get_reader()
-    results = reader.readtext(image_array)
+    results = reader.readtext(image)
 
     detections = []
-    for (bbox, text, confidence) in results:
+    for bbox, text, confidence in results:
         # Convert numpy arrays to plain Python lists for JSON serialization
         bbox_list = [[int(pt[0]), int(pt[1])] for pt in bbox]
         detections.append({
@@ -173,20 +179,23 @@ def _extract_cloud_with_scores(image_bytes: bytes) -> dict:
     headers = {"apikey": _ocr_space_api_key()}
 
     try:
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=60.0) as client:
             response = client.post(url, data=payload, headers=headers)
             response.raise_for_status()
 
         result = response.json()
         parsed = result.get("ParsedResults", [])
         if not parsed:
-            return {"provider": "cloud", "full_text": "", "detections": [], "average_confidence": 0.0}
+            return {
+                "provider": "cloud",
+                "full_text": "",
+                "detections": [],
+                "average_confidence": 0.0,
+            }
 
         detections = []
         for block in parsed:
             text = block.get("ParsedText", "")
-            # OCR.space returns Words or LineOverlay with confidence
-            line_conf = block.get("FileParseExitCode")
             confidence = 0.95  # default when not provided per-line
 
             # Try to extract per-word confidence from LineOverlay
@@ -223,28 +232,29 @@ def _extract_cloud_with_scores(image_bytes: bytes) -> dict:
         raise
 
 
+from services.image_processor import enhance_image_for_ocr
+from services.entity_extractor import extract_entities_from_text
+
+
 # ---------------------------------------------------------------------------
 # Public API — the only function the rest of the app should call
 # ---------------------------------------------------------------------------
 def extract_text(image: bytes) -> str:
     """
     Extract text from a product-label image.
-
-    Args:
-        image: Raw image bytes (PNG / JPEG).
-
-    Returns:
-        Extracted text as a single string, or empty string if nothing found.
-
-    Raises:
-        RuntimeError: If the configured provider fails.
+    Automatically applies OpenCV enhancement and falls back to local EasyOCR.
     """
+    enhanced_image, _ = enhance_image_for_ocr(image)
     provider = settings.OCR_PROVIDER.lower()
 
     if provider == "cloud":
-        return _extract_cloud(image)
+        try:
+            return _extract_cloud(enhanced_image)
+        except Exception as exc:
+            logger.warning("Cloud OCR failed (%s), falling back to local EasyOCR...", exc)
+            return _extract_local(enhanced_image)
     elif provider == "local":
-        return _extract_local(image)
+        return _extract_local(enhanced_image)
     else:
         raise RuntimeError(
             f"Unknown OCR_PROVIDER '{provider}'. "
@@ -254,34 +264,30 @@ def extract_text(image: bytes) -> str:
 
 def extract_text_with_scores(image: bytes) -> dict:
     """
-    Extract text from an image and return individual detections with
-    bounding boxes and confidence scores.
-
-    Args:
-        image: Raw image bytes (PNG / JPEG).
-
-    Returns:
-        {
-          "provider": "local" | "cloud",
-          "full_text": "...",
-          "detections": [
-            {"text": "...", "confidence": 0.95, "bbox": [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]},
-            ...
-          ],
-          "average_confidence": 0.92
-        }
+    Extract text from an image, run custom package entity extractor model,
+    and return detections with confidence scores.
     """
+    enhanced_image, was_enhanced = enhance_image_for_ocr(image)
     provider = settings.OCR_PROVIDER.lower()
 
-    if provider == "local":
-        return _extract_local_with_scores(image)
-    elif provider == "cloud":
-        return _extract_cloud_with_scores(image)
+    if provider == "cloud":
+        try:
+            res = _extract_cloud_with_scores(enhanced_image)
+        except Exception as exc:
+            logger.warning("Cloud OCR failed (%s), falling back to local EasyOCR...", exc)
+            res = _extract_local_with_scores(enhanced_image)
+            res["provider"] = "local (fallback)"
+    elif provider == "local":
+        res = _extract_local_with_scores(enhanced_image)
     else:
         raise RuntimeError(
             f"Unknown OCR_PROVIDER '{provider}'. "
             "Set OCR_PROVIDER to 'local' or 'cloud' in your .env file."
         )
+
+    res["enhanced"] = was_enhanced
+    res["extracted_entities"] = extract_entities_from_text(res.get("full_text", ""))
+    return res
 
 
 def preload_model() -> None:

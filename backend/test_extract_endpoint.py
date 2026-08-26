@@ -52,7 +52,9 @@ def run_test():
 
     # Use TestClient (no actual server needed)
     from main import app
+    from auth.dependencies import get_current_user
 
+    app.dependency_overrides[get_current_user] = lambda: {"id": "test-user-123", "role": "consumer"}
     client = TestClient(app)
 
     print("[1] Creating test image...")

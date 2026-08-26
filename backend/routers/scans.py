@@ -155,7 +155,9 @@ async def scan(
         "scan_id": scan_id,
         "ocr": {
             "provider": ocr_result["provider"],
+            "enhanced": ocr_result.get("enhanced", False),
             "full_text": full_text,
+            "extracted_entities": ocr_result.get("extracted_entities", {}),
             "detections": ocr_result["detections"],
             "average_confidence": ocr_result["average_confidence"],
         },
