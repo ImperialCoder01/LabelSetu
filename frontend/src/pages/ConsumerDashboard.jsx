@@ -5,7 +5,79 @@ import { useTranslation } from "react-i18next";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Tooltip } from "recharts";
 
-const API_BASE = (import.meta.env.VITE_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu-api.onrender.com").replace(/\/$/, "");
+
+function UnitPriceComparator() {
+  const [p1, setP1] = useState({ price: "50", qty: "200", unit: "g" });
+  const [p2, setP2] = useState({ price: "110", qty: "500", unit: "g" });
+
+  const cost1 = (parseFloat(p1.price) / parseFloat(p1.qty)) || 0;
+  const cost2 = (parseFloat(p2.price) / parseFloat(p2.qty)) || 0;
+
+  const diff = cost1 && cost2 ? Math.abs(((cost1 - cost2) / Math.max(cost1, cost2)) * 100).toFixed(1) : 0;
+  const winner = cost1 < cost2 ? "Option 1" : cost1 > cost2 ? "Option 2" : "Equal";
+
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
+            Unit Sale Price Comparator (Rule 6)
+          </h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Compare cost per gram/ml across pack sizes to spot misleading prices
+          </p>
+        </div>
+        <span className="text-xs font-semibold px-2 py-0.5 rounded bg-green-100 text-green-800">
+          Consumer Saver
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div className={`p-3 rounded-lg border ${winner === "Option 1" ? "border-green-500 bg-green-50/50" : "border-gray-200 bg-gray-50"}`}>
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-xs font-bold text-gray-700">Option A (Small Pack)</span>
+            {winner === "Option 1" && <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded">Cheaper Choice ✓</span>}
+          </div>
+          <div className="flex gap-2">
+            <input type="number" placeholder="Price (₹)" value={p1.price} onChange={(e) => setP1({...p1, price: e.target.value})} className="input-field text-xs flex-1" />
+            <input type="number" placeholder="Qty" value={p1.qty} onChange={(e) => setP1({...p1, qty: e.target.value})} className="input-field text-xs flex-1" />
+            <span className="text-xs font-medium self-center text-gray-500">{p1.unit}</span>
+          </div>
+          <p className="text-xs font-mono font-bold text-gray-800 mt-2">
+            Unit Price: ₹{(cost1 * 100).toFixed(2)} / 100{p1.unit}
+          </p>
+        </div>
+
+        <div className={`p-3 rounded-lg border ${winner === "Option 2" ? "border-green-500 bg-green-50/50" : "border-gray-200 bg-gray-50"}`}>
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-xs font-bold text-gray-700">Option B (Large Pack)</span>
+            {winner === "Option 2" && <span className="text-xs font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded">Cheaper Choice ✓</span>}
+          </div>
+          <div className="flex gap-2">
+            <input type="number" placeholder="Price (₹)" value={p2.price} onChange={(e) => setP2({...p2, price: e.target.value})} className="input-field text-xs flex-1" />
+            <input type="number" placeholder="Qty" value={p2.qty} onChange={(e) => setP2({...p2, qty: e.target.value})} className="input-field text-xs flex-1" />
+            <span className="text-xs font-medium self-center text-gray-500">{p2.unit}</span>
+          </div>
+          <p className="text-xs font-mono font-bold text-gray-800 mt-2">
+            Unit Price: ₹{(cost2 * 100).toFixed(2)} / 100{p2.unit}
+          </p>
+        </div>
+      </div>
+
+      {cost1 > 0 && cost2 > 0 && (
+        <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex justify-between items-center">
+          <span>
+            <b>{winner}</b> is <b>{diff}% cheaper</b> per unit.
+          </span>
+          <span className="font-mono font-bold text-blue-700">
+            Rule 6 Metric Compliant
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function UploadScreen({ onFileSelected }) {
   const { t } = useTranslation();
@@ -402,6 +474,7 @@ export default function ConsumerDashboard() {
           </div>
         )}
       </div>
+      <UnitPriceComparator />
     </div>
   );
 }

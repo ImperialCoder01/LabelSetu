@@ -130,6 +130,30 @@ export function AuthProvider({ children }) {
     setProfile(null);
   }
 
+  async function switchRole(newRole) {
+    if (!user) return;
+    try {
+      const { data, error } = await supabase
+        .from("users_profile")
+        .upsert({
+          id: user.id,
+          full_name: profile?.full_name || user.user_metadata?.full_name || user.email?.split("@")[0] || "User",
+          role: newRole,
+        })
+        .select("*")
+        .maybeSingle();
+
+      if (data) {
+        setProfile(data);
+      } else {
+        setProfile((prev) => ({ ...(prev || {}), id: user.id, role: newRole }));
+      }
+    } catch (err) {
+      console.warn("Could not update role in DB, setting local state:", err);
+      setProfile((prev) => ({ ...(prev || {}), id: user.id, role: newRole }));
+    }
+  }
+
   const value = {
     user,
     profile,
@@ -137,6 +161,7 @@ export function AuthProvider({ children }) {
     signUp,
     signIn,
     signOut,
+    switchRole,
     role: profile?.role || null,
   };
 
