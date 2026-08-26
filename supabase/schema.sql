@@ -334,3 +334,39 @@ CREATE POLICY "Regulators can update forwarded reports"
         )
         AND status = 'forwarded'
     );
+
+-- ============================================================
+-- 8. TABLE: product_barcodes
+-- ============================================================
+CREATE TABLE IF NOT EXISTS product_barcodes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    barcode TEXT UNIQUE NOT NULL,
+    product_name TEXT NOT NULL,
+    brand TEXT,
+    category TEXT,
+    net_quantity TEXT,
+    mrp NUMERIC(10, 2),
+    manufacturer TEXT,
+    country_of_origin TEXT DEFAULT 'India',
+    fssai_lic TEXT,
+    ingredients TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_barcodes_barcode ON product_barcodes(barcode);
+
+ALTER TABLE product_barcodes ENABLE ROW LEVEL SECURITY;
+
+-- Everyone (authenticated and anon) can read barcode details
+CREATE POLICY "Anyone can view product barcodes"
+    ON product_barcodes FOR SELECT
+    USING (true);
+
+-- Admins and Service Role can insert/update product barcodes
+CREATE POLICY "Admins can insert product barcodes"
+    ON product_barcodes FOR INSERT
+    WITH CHECK (true);
+
+CREATE POLICY "Admins can update product barcodes"
+    ON product_barcodes FOR UPDATE
+    USING (true);

@@ -9,8 +9,10 @@ Used to cross-reference OCR-extracted label text against registered
 product data and flag manufacturer-name mismatches.
 """
 
+import json
 import logging
 import httpx
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -22,33 +24,100 @@ OFF_FIELDS = (
     "quantity,stores,nutrition_grades"
 )
 
+logger = logging.getLogger(__name__)
+
+OFF_API_URL = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
+OFF_FIELDS = (
+    "product_name,brands,brands_tags,"
+    "manufacturing_places,origins,categories,"
+    "countries,ingredients_text,labels,"
+    "quantity,stores,nutrition_grades"
+)
+
+# Load local barcode catalog JSON (~1,000+ FMCG product records)
+CATALOG_PATH = Path(__file__).parent.parent / "models" / "barcode_catalog.json"
+_LOCAL_CATALOG = None
+
+
+def _get_local_catalog() -> dict:
+    """Lazy load local barcode catalog dataset."""
+    global _LOCAL_CATALOG
+    if _LOCAL_CATALOG is None:
+        if CATALOG_PATH.exists():
+            try:
+                with open(CATALOG_PATH, "r", encoding="utf-8") as f:
+                    _LOCAL_CATALOG = json.load(f)
+                logger.info("Loaded %d barcode catalog records", len(_LOCAL_CATALOG))
+            except Exception as exc:
+                logger.error("Failed to load barcode catalog JSON: %s", exc)
+                _LOCAL_CATALOG = {}
+        else:
+            _LOCAL_CATALOG = {}
+    return _LOCAL_CATALOG
+
 
 def lookup_barcode(barcode: str) -> dict | None:
     """
-    Look up a product barcode on Open Food Facts.
-
-    Returns:
-        Normalized dict with product info, or None if not found.
-
-        {
-          "barcode": "5449000000996",
-          "product_name": "Coca-Cola",
-          "brand": "Coca-Cola",
-          "manufacturing_places": "atlanta, georgia, united-states",
-          "origins": "United Kingdom",
-          "categories": "Colas, ...",
-          "countries": "...",
-          "ingredients_text": "...",
-          "labels": "...",
-          "quantity": "...",
-          "found": True
-        }
+    Look up a product barcode.
+    Strategy:
+      1. Check local in-memory catalog JSON (instant <1ms lookup)
+      2. Check Supabase product_barcodes table
+      3. Fallback to Open Food Facts API
     """
+    barcode = barcode.strip()
+    if not barcode:
+        return None
+
+    # Tier 1: Check Local In-Memory Catalog JSON
+    catalog = _get_local_catalog()
+    if barcode in catalog:
+        item = catalog[barcode]
+        return {
+            "barcode": barcode,
+            "product_name": item.get("product_name", ""),
+            "brand": item.get("brand", ""),
+            "brand_tags": [item.get("brand", "").lower()],
+            "manufacturing_places": item.get("manufacturer", ""),
+            "origins": item.get("country_of_origin", "India"),
+            "categories": item.get("category", ""),
+            "countries": "India",
+            "ingredients_text": item.get("ingredients", ""),
+            "labels": "FSSAI Compliant",
+            "quantity": item.get("net_quantity", ""),
+            "found": True,
+            "source": "local_catalog",
+        }
+
+    # Tier 2: Check Supabase product_barcodes Table
+    try:
+        from database import supabase
+        res = supabase.table("product_barcodes").select("*").eq("barcode", barcode).execute()
+        if res.data and len(res.data) > 0:
+            db_row = res.data[0]
+            return {
+                "barcode": barcode,
+                "product_name": db_row.get("product_name", ""),
+                "brand": db_row.get("brand", ""),
+                "brand_tags": [db_row.get("brand", "").lower()],
+                "manufacturing_places": db_row.get("manufacturer", ""),
+                "origins": db_row.get("country_of_origin", "India"),
+                "categories": db_row.get("category", ""),
+                "countries": "India",
+                "ingredients_text": db_row.get("ingredients", ""),
+                "labels": "FSSAI Compliant",
+                "quantity": db_row.get("net_quantity", ""),
+                "found": True,
+                "source": "supabase_db",
+            }
+    except Exception as exc:
+        logger.debug("Supabase barcode query skipped: %s", exc)
+
+    # Tier 3: Open Food Facts API Fallback
     url = OFF_API_URL.format(barcode=barcode)
     params = {"fields": OFF_FIELDS}
 
     try:
-        with httpx.Client(timeout=15.0) as client:
+        with httpx.Client(timeout=10.0) as client:
             resp = client.get(url, params=params)
             resp.raise_for_status()
 
@@ -73,6 +142,7 @@ def lookup_barcode(barcode: str) -> dict | None:
             "labels": product.get("labels") or "",
             "quantity": product.get("quantity") or "",
             "found": True,
+            "source": "open_food_facts",
         }
 
     except httpx.HTTPStatusError as exc:
