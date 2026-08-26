@@ -1,0 +1,24 @@
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    # Supabase
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
+    SUPABASE_JWT_SECRET: str = ""
+
+    # OCR
+    OCR_PROVIDER: str = "local"  # 'local' (EasyOCR) or 'cloud' (OCR.space)
+    OCR_API_KEY: str = ""          # OCR.space API key (only needed when OCR_PROVIDER=cloud)
+
+    # App
+    BACKEND_URL: str = "http://localhost:8000"
+    DEBUG: bool = True
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+
+settings = Settings()
