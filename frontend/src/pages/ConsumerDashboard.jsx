@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Tooltip } from "recharts";
 
-const API_BASE = import.meta.env.VITE_BACKEND_URL || "http://localhost:8000";
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || "http://localhost:8000").replace(/\/$/, "");
 
 function UploadScreen({ onFileSelected }) {
   const { t } = useTranslation();
@@ -30,7 +30,7 @@ function UploadScreen({ onFileSelected }) {
           <button onClick={() => { setPreview(null); onFileSelected(null); if (fileRef.current) fileRef.current.value = ""; }} className="absolute top-2 right-2 bg-white/90 hover:bg-white text-gray-600 hover:text-red-600 rounded-full w-8 h-8 flex items-center justify-center shadow-sm transition-colors" title="Remove">&times;</button>
         </div>
       ) : (
-        <div onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop} className={"border-2 border-dashed rounded-xl p-10 text-center transition-colors " + (dragOver ? "border-primary-500 bg-primary-50" : "border-gray-300 hover:border-gray-400")}>
+        <div onClick={() => fileRef.current?.click()} onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop} className={"border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors " + (dragOver ? "border-primary-500 bg-primary-50" : "border-gray-300 hover:border-gray-400")}>
           <div className="mx-auto mb-3 w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center">
             <svg className="w-7 h-7 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>
           </div>
@@ -275,7 +275,7 @@ export default function ConsumerDashboard() {
   }
 
   async function handleScan() {
-    if (!selectedFile) return;
+    if (!selectedFile && !capturedBarcode) return;
     setScreen("processing");
     setScanError(null);
     setLastResult(null);
@@ -283,7 +283,7 @@ export default function ConsumerDashboard() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error("Not authenticated");
       const formData = new FormData();
-      formData.append("file", selectedFile);
+      if (selectedFile) formData.append("file", selectedFile);
       if (capturedBarcode) formData.append("barcode", capturedBarcode);
       const res = await fetch(API_BASE + "/api/scans/scan", { method: "POST", headers: { Authorization: "Bearer " + session.access_token }, body: formData });
       if (!res.ok) { const errBody = await res.json().catch(() => ({})); throw new Error(errBody.detail || "Scan failed (" + res.status + ")"); }
@@ -347,7 +347,9 @@ export default function ConsumerDashboard() {
             {capturedBarcode && (<div className="mt-3 p-2 bg-green-50 rounded-lg flex items-center gap-2"><span className="text-green-600">✓</span><span className="text-sm text-green-700 font-mono">{capturedBarcode}</span><button onClick={() => setCapturedBarcode("")} className="ml-auto text-green-600 hover:text-green-800 text-xs">Clear</button></div>)}
           </div>
           {scanError && <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{scanError}</div>}
-          <button onClick={handleScan} disabled={!selectedFile} className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed text-base py-3">{capturedBarcode ? t("consumer.scanLabelBarcode", { code: capturedBarcode }) : t("consumer.scanLabelBtn")}</button>
+          <button onClick={handleScan} disabled={!selectedFile && !capturedBarcode} className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed text-base py-3">
+            {capturedBarcode ? (selectedFile ? "Scan Package & Cross-Check Barcode" : "Lookup Barcode " + capturedBarcode) : t("consumer.scanLabelBtn")}
+          </button>
         </>
       )}
       {screen === "barcode" && <BarcodeScanner onDetected={(code) => { setCapturedBarcode(code); setScreen("upload"); }} onCancel={() => setScreen("upload")} onError={(msg) => { setScanError(msg); setScreen("upload"); }} />}
