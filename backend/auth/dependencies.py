@@ -39,21 +39,38 @@ async def get_current_user(
         )
 
     # Fetch user profile
-    result = (
-        supabase.table("users_profile")
-        .select("*")
-        .eq("id", user_id)
-        .single()
-        .execute()
-    )
-
-    if not result.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User profile not found",
+    try:
+        result = (
+            supabase.table("users_profile")
+            .select("*")
+            .eq("id", user_id)
+            .maybeSingle()
+            .execute()
         )
+        profile_data = result.data
+    except Exception:
+        profile_data = None
 
-    return {**payload, "profile": result.data}
+    if not profile_data:
+        # Auto-heal profile using JWT metadata
+        user_metadata = payload.get("user_metadata", {})
+        role = user_metadata.get("role", "consumer")
+        full_name = user_metadata.get("full_name", payload.get("email", "").split("@")[0] or "User")
+        profile_data = {"id": user_id, "full_name": full_name, "role": role}
+        try:
+            upsert_res = (
+                supabase.table("users_profile")
+                .upsert({"id": user_id, "full_name": full_name, "role": role})
+                .select("*")
+                .maybeSingle()
+                .execute()
+            )
+            if upsert_res and upsert_res.data:
+                profile_data = upsert_res.data
+        except Exception:
+            pass
+
+    return {**payload, "profile": profile_data}
 
 
 def require_role(*allowed_roles):

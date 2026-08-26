@@ -353,12 +353,38 @@ export default function ConsumerDashboard() {
     setLastResult(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Not authenticated");
+      if (!session || !session.access_token) {
+        throw new Error("Authentication session missing. Please sign in again.");
+      }
+
       const formData = new FormData();
       if (selectedFile) formData.append("file", selectedFile);
       if (capturedBarcode) formData.append("barcode", capturedBarcode);
-      const res = await fetch(API_BASE + "/api/scans/scan", { method: "POST", headers: { Authorization: "Bearer " + session.access_token }, body: formData });
-      if (!res.ok) { const errBody = await res.json().catch(() => ({})); throw new Error(errBody.detail || "Scan failed (" + res.status + ")"); }
+
+      let res;
+      try {
+        res = await fetch(`${API_BASE}/api/scans/scan`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: formData,
+        });
+      } catch (netErr) {
+        throw new Error(`Network/CORS Error (${netErr.name || "TypeError"}): Unable to reach backend API at ${API_BASE}. Please verify server status & CORS config.`);
+      }
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        const detailMsg = errBody.detail || errBody.message;
+        if (res.status === 401) throw new Error("401 Unauthorized: Invalid or expired auth token. Please sign in again.");
+        if (res.status === 403) throw new Error(`403 Forbidden: ${detailMsg || "Account role not authorized for scans."}`);
+        if (res.status === 404) throw new Error("404 Not Found: Scan endpoint /api/scans/scan not found.");
+        if (res.status === 413) throw new Error("413 File Too Large: Image size exceeds 10MB limit.");
+        if (res.status >= 500) throw new Error(`Server Error ${res.status}: Backend service failed. ${detailMsg || "Please try again."}`);
+        throw new Error(`Scan Failed (${res.status}): ${detailMsg || res.statusText}`);
+      }
+
       const result = await res.json();
       setLastResult(result);
       setSelectedFile(null);

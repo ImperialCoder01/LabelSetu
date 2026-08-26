@@ -18,15 +18,22 @@ app = FastAPI(
 cors_origins = [
     "http://localhost:5173",
     "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+    "https://labelsetu-ivory.vercel.app",
 ]
-# Add deployed frontend URL from env
-frontend_url = os.getenv("FRONTEND_URL", "")
-if frontend_url:
-    cors_origins.append(frontend_url)
+
+frontend_env = os.getenv("FRONTEND_URL", "")
+if frontend_env:
+    for url in frontend_env.split(","):
+        cleaned = url.strip().rstrip("/")
+        if cleaned and cleaned not in cors_origins:
+            cors_origins.append(cleaned)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
