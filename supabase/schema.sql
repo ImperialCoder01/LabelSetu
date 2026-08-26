@@ -29,7 +29,8 @@ BEGIN
     );
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public;
 
 CREATE OR REPLACE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
@@ -98,6 +99,11 @@ ALTER TABLE api_usage_log ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own profile"
     ON users_profile FOR SELECT
     USING (auth.uid() = id);
+
+-- Users can insert their own profile (used by signup trigger)
+CREATE POLICY "Users can insert own profile"
+    ON users_profile FOR INSERT
+    WITH CHECK (auth.uid() = id OR auth.uid() IS NULL);
 
 -- Users can update their own profile
 CREATE POLICY "Users can update own profile"

@@ -40,6 +40,7 @@ export function AuthProvider({ children }) {
 
     if (error) {
       console.error("Error fetching profile:", error);
+      // Profile may not exist yet (e.g. email confirmation pending)
     }
     setProfile(data);
     setLoading(false);
@@ -49,22 +50,25 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          full_name: fullName,
+          role: role,
+        },
+      },
     });
 
     if (error) throw error;
 
-    // Create profile after signup
+    // The trigger on_auth_user_created creates the profile automatically.
     if (data.user) {
-      const { error: profileError } = await supabase
-        .from("users_profile")
-        .insert({
-          id: data.user.id,
-          full_name: fullName,
-          role,
-        });
-
-      if (profileError) throw profileError;
-      await fetchProfile(data.user.id);
+      // If session exists, user is signed in immediately
+      if (data.session) {
+        await new Promise((r) => setTimeout(r, 300));
+        await fetchProfile(data.user.id);
+      }
+      // If no session, email confirmation is required — profile will be
+      // created when they confirm. Return info so caller can show message.
     }
 
     return data;

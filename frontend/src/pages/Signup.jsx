@@ -21,14 +21,21 @@ export default function Signup() {
     { value: "admin", label: t("auth.roleAdmin"), description: t("auth.roleAdminDesc") },
   ];
 
+  const [emailSent, setEmailSent] = useState(false);
+
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      await signUp(email, password, fullName, role);
-      navigate("/dashboard");
+      const data = await signUp(email, password, fullName, role);
+      if (!data.session) {
+        // Email confirmation required
+        setEmailSent(true);
+      } else {
+        navigate("/dashboard");
+      }
     } catch (err) {
       setError(err.message || "Failed to create account");
     } finally {
@@ -48,6 +55,12 @@ export default function Signup() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {emailSent && (
+            <div className="bg-green-50 text-green-700 p-4 rounded-lg text-sm">
+              <p className="font-medium">Check your email!</p>
+              <p className="mt-1">We sent a confirmation link to <strong>{email}</strong>. Click the link to activate your account, then sign in.</p>
+            </div>
+          )}
           {error && (
             <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm">
               {error}
