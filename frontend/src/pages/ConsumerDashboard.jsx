@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import BarcodeScanner from "../components/BarcodeScanner";
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Tooltip } from "recharts";
 
-const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu-api.onrender.com").replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu.onrender.com").replace(/\/$/, "");
 
 function UnitPriceComparator() {
   const [p1, setP1] = useState({ price: "50", qty: "200", unit: "g" });
@@ -371,18 +371,22 @@ export default function ConsumerDashboard() {
           body: formData,
         });
       } catch (netErr) {
-        throw new Error(`Network/CORS Error (${netErr.name || "TypeError"}): Unable to reach backend API at ${API_BASE}. Please verify server status & CORS config.`);
+        console.error("Browser fetch network/CORS error:", netErr);
+        throw new Error("Browser could not connect to scanning server");
       }
 
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
+        console.error(`HTTP ${res.status} Response Body:`, errBody);
         const detailMsg = errBody.detail || errBody.message;
-        if (res.status === 401) throw new Error("401 Unauthorized: Invalid or expired auth token. Please sign in again.");
-        if (res.status === 403) throw new Error(`403 Forbidden: ${detailMsg || "Account role not authorized for scans."}`);
-        if (res.status === 404) throw new Error("404 Not Found: Scan endpoint /api/scans/scan not found.");
-        if (res.status === 413) throw new Error("413 File Too Large: Image size exceeds 10MB limit.");
-        if (res.status >= 500) throw new Error(`Server Error ${res.status}: Backend service failed. ${detailMsg || "Please try again."}`);
-        throw new Error(`Scan Failed (${res.status}): ${detailMsg || res.statusText}`);
+        if (res.status === 401) throw new Error("Authentication failed");
+        if (res.status === 403) throw new Error("You do not have permission to scan");
+        if (res.status === 404) throw new Error("Scan API endpoint not found");
+        if (res.status === 500) throw new Error("Server error while processing the image");
+        if (res.status === 502 || res.status === 503 || res.status === 504) {
+          throw new Error("Scanning server temporarily unavailable");
+        }
+        throw new Error(`Scan failed (${res.status}): ${detailMsg || res.statusText}`);
       }
 
       const result = await res.json();
