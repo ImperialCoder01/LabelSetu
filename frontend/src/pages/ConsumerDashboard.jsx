@@ -353,6 +353,10 @@ export default function ConsumerDashboard() {
     setLastResult(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
+      console.log("[AUTH DEBUG] session exists:", Boolean(session));
+      console.log("[AUTH DEBUG] access token exists:", Boolean(session?.access_token));
+      console.log("[AUTH DEBUG] user id exists:", Boolean(session?.user?.id));
+
       if (!session || !session.access_token) {
         throw new Error("Authentication session missing. Please sign in again.");
       }
