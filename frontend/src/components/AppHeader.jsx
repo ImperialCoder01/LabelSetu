@@ -1,26 +1,17 @@
 import { useAuth } from "../context/AuthContext";
 import LanguageToggle from "./LanguageToggle";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 
 export default function AppHeader({ onToggleMobileMenu, title, subtitle, breadcrumbs = [] }) {
-  const { profile, role, switchRole } = useAuth();
+  const { profile, role, isAdmin } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const userRole = role || "consumer";
 
-  // Derive first name dynamically
   const firstName = profile?.full_name
     ? profile.full_name.trim().split(" ")[0]
     : "User";
-
-  const handleRoleChange = async (e) => {
-    const newRole = e.target.value;
-    await switchRole(newRole);
-    if (newRole === "admin") navigate("/admin");
-    else if (newRole === "brand") navigate("/brand");
-    else if (newRole === "regulator") navigate("/regulator");
-    else navigate("/consumer");
-  };
 
   const roleStyles = {
     consumer: "bg-sky-50 text-sky-800 border-sky-200",
@@ -29,14 +20,29 @@ export default function AppHeader({ onToggleMobileMenu, title, subtitle, breadcr
     admin: "bg-red-50 text-red-800 border-red-200",
   };
 
+  const handleAdminViewChange = (e) => {
+    const target = e.target.value;
+    if (target === "admin") navigate("/admin");
+    else if (target === "brand") navigate("/brand");
+    else if (target === "regulator") navigate("/regulator");
+    else navigate("/consumer");
+  };
+
+  const currentView = location.pathname.startsWith("/admin")
+    ? "admin"
+    : location.pathname.startsWith("/brand")
+    ? "brand"
+    : location.pathname.startsWith("/regulator")
+    ? "regulator"
+    : "consumer";
+
   return (
     <header className="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between shadow-xs">
-      {/* Left Area: Hamburger + Title / Greeting */}
       <div className="flex items-center gap-3 sm:gap-4 min-w-0">
         <button
           type="button"
           onClick={onToggleMobileMenu}
-          className="p-2 -ml-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 lg:hidden focus:outline-none focus:ring-2 focus:ring-accent-500"
+          className="p-2 -ml-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 lg:hidden focus:outline-none focus:ring-2 focus:ring-emerald-500"
           aria-label="Open sidebar menu"
         >
           <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -59,30 +65,33 @@ export default function AppHeader({ onToggleMobileMenu, title, subtitle, breadcr
         </div>
       </div>
 
-      {/* Right Area: Tools, Role Switcher, Language Toggle */}
       <div className="flex items-center gap-2 sm:gap-3">
         <LanguageToggle />
 
-        {/* Role Mode Explorer */}
-        <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-xl border border-slate-200/80">
-          <span className="text-[11px] font-bold text-slate-500 hidden md:inline">Mode:</span>
-          <select
-            value={userRole}
-            onChange={handleRoleChange}
-            className="text-xs font-bold text-slate-800 bg-transparent border-none focus:ring-0 cursor-pointer py-0.5 pl-1 pr-6"
-          >
-            <option value="consumer">Consumer Audit</option>
-            <option value="brand">Brand SaaS</option>
-            <option value="regulator">Regulator Portal</option>
-            <option value="admin">Admin Control ⚙️</option>
-          </select>
-        </div>
+        {isAdmin ? (
+          <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-xl border border-slate-200">
+            <span className="text-[10px] font-bold text-slate-500 hidden md:inline">View:</span>
+            <select
+              value={currentView}
+              onChange={handleAdminViewChange}
+              className="text-xs font-extrabold text-slate-800 bg-transparent border-none focus:ring-0 cursor-pointer py-0.5 pl-1 pr-6"
+            >
+              <option value="admin">Admin Control ⚙️</option>
+              <option value="consumer">Consumer View (Preview)</option>
+              <option value="brand">Brand View (Preview)</option>
+              <option value="regulator">Regulator View (Preview)</option>
+            </select>
+          </div>
+        ) : (
+          <span className={`inline-flex sm:hidden text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md border ${roleStyles[userRole]}`}>
+            {userRole}
+          </span>
+        )}
 
-        {/* Quick CTA button on Consumer mode */}
         {userRole === "consumer" && (
           <Link
             to="/consumer/scan"
-            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent-600 hover:bg-accent-700 text-white text-xs font-bold shadow-xs transition-colors"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-xs font-bold shadow-xs transition-colors"
           >
             <span>📷</span>
             <span>Scan Product</span>

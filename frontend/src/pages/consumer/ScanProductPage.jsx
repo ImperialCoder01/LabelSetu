@@ -1,12 +1,12 @@
 import { useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../context/AuthContext";
 import BarcodeScanner from "../../components/BarcodeScanner";
 import AppDrawer from "../../components/AppDrawer";
 
 const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu.onrender.com").replace(/\/$/, "");
 
-// Client-side image pre-scaling to prevent memory spikes & socket aborts
 async function optimizeImageForUpload(file, maxDimension = 1600, quality = 0.88) {
   if (!file || !file.type || !file.type.startsWith("image/")) return file;
   return new Promise((resolve) => {
@@ -69,16 +69,16 @@ async function optimizeImageForUpload(file, maxDimension = 1600, quality = 0.88)
 }
 
 export default function ScanProductPage() {
+  const { role, isAdmin } = useAuth();
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const [capturedBarcode, setCapturedBarcode] = useState(null);
   const [scannerOpen, setScannerOpen] = useState(false);
 
-  const [screen, setScreen] = useState("upload"); // upload | processing | results
+  const [screen, setScreen] = useState("upload");
   const [lastResult, setLastResult] = useState(null);
   const [scanError, setScanError] = useState(null);
 
-  // Drawers
   const [activeRuleDrawer, setActiveRuleDrawer] = useState(null);
   const [ocrDrawerOpen, setOcrDrawerOpen] = useState(false);
   const [reportSuccess, setReportSuccess] = useState(false);
@@ -110,6 +110,17 @@ export default function ScanProductPage() {
   };
 
   async function handleScan() {
+    if (isAdmin) {
+      setScanError({
+        message: "Live packaging audits are authorized for Consumer and Brand accounts. Please sign in with a consumer or brand account.",
+        apiHost: API_BASE,
+        online: navigator.onLine ? "Yes" : "No",
+        imagesCount: selectedFiles.length,
+        totalSizeKB: 0,
+      });
+      return;
+    }
+
     if (selectedFiles.length === 0 && !capturedBarcode) return;
     setScreen("processing");
     setScanError(null);
@@ -123,7 +134,6 @@ export default function ScanProductPage() {
         throw new Error("Authentication session expired. Please sign in again.");
       }
 
-      // Pre-flight non-blocking ping
       try {
         const pingCtrl = new AbortController();
         const t = setTimeout(() => pingCtrl.abort(), 4000);
@@ -131,7 +141,6 @@ export default function ScanProductPage() {
         clearTimeout(t);
       } catch (_) {}
 
-      // Pre-scale images before building FormData
       const filesToUpload = await Promise.all(
         selectedFiles.map((file) => optimizeImageForUpload(file))
       );
@@ -208,7 +217,18 @@ export default function ScanProductPage() {
 
   return (
     <div className="space-y-6">
-      {/* PROCESSING SCREEN */}
+      {isAdmin && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 text-xs flex items-start gap-3 shadow-xs">
+          <span className="text-xl">🛡️</span>
+          <div>
+            <p className="font-extrabold text-amber-950">Admin Preview Mode</p>
+            <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+              You are viewing this screen as an <strong>Administrator</strong>. Live packaging audits against the backend require a <strong>Consumer</strong> or <strong>Brand</strong> account.
+            </p>
+          </div>
+        </div>
+      )}
+
       {screen === "processing" && (
         <div className="card-slate p-8 sm:p-12 text-center max-w-xl mx-auto space-y-6 animate-fade-in">
           <div className="relative w-20 h-20 mx-auto">
@@ -243,7 +263,6 @@ export default function ScanProductPage() {
         </div>
       )}
 
-      {/* UPLOAD SCREEN */}
       {screen === "upload" && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -260,7 +279,6 @@ export default function ScanProductPage() {
             )}
           </div>
 
-          {/* Error Alert if any */}
           {scanError && (
             <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-900 text-xs space-y-2">
               <div className="flex items-center gap-2 font-bold">
@@ -277,7 +295,6 @@ export default function ScanProductPage() {
             </div>
           )}
 
-          {/* Dropzone & Selected Previews */}
           {selectedFiles.length > 0 ? (
             <div className="space-y-3">
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
@@ -337,11 +354,9 @@ export default function ScanProductPage() {
             </div>
           )}
 
-          {/* Hidden File Inputs */}
           <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleInputChange} className="hidden" id="scan-file-input" />
           <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleInputChange} className="hidden" id="scan-camera-input" />
 
-          {/* Upload Buttons & Barcode Trigger */}
           <div className="flex flex-wrap gap-3">
             <label htmlFor="scan-camera-input" className="btn-secondary flex-1 cursor-pointer">
               <span>📸</span> Take Photo
@@ -358,7 +373,6 @@ export default function ScanProductPage() {
             </button>
           </div>
 
-          {/* Inline Barcode Scanner */}
           {scannerOpen && (
             <div className="card-slate p-4 border-slate-300">
               <div className="flex items-center justify-between mb-3">
@@ -376,7 +390,6 @@ export default function ScanProductPage() {
             </div>
           )}
 
-          {/* Useful Packaging Panels Tips */}
           <div className="card-slate p-4 bg-slate-50/70">
             <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
               💡 Recommended Packaging Panels for 100% Verification Coverage
@@ -401,24 +414,27 @@ export default function ScanProductPage() {
             </div>
           </div>
 
-          {/* Primary Action Button */}
           <button
             type="button"
             onClick={handleScan}
-            disabled={selectedFiles.length === 0 && !capturedBarcode}
-            className="btn-accent w-full py-4 text-sm font-black tracking-wide disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
+            disabled={(selectedFiles.length === 0 && !capturedBarcode) || isAdmin}
+            className={`w-full py-4 text-sm font-black tracking-wide rounded-xl shadow-md transition-all ${
+              isAdmin
+                ? "bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300"
+                : "btn-accent disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg"
+            }`}
           >
-            {selectedFiles.length > 1
+            {isAdmin
+              ? "Scanning Disabled in Admin View (Sign in as Consumer or Brand)"
+              : selectedFiles.length > 1
               ? `Audit ${selectedFiles.length} Packaging Photos`
               : "Audit Packaging Label"}
           </button>
         </div>
       )}
 
-      {/* RESULTS SCREEN */}
       {screen === "results" && lastResult && (
         <div className="space-y-6 animate-fade-in">
-          {/* Header Action Bar */}
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-black text-slate-900 tracking-tight">Legal Metrology Audit Report</h2>
             <button
@@ -433,7 +449,6 @@ export default function ScanProductPage() {
             </button>
           </div>
 
-          {/* Top Compliance Meter Card */}
           {(() => {
             const comp = lastResult.compliance || {};
             const score = comp.overall_score !== undefined && comp.overall_score !== null ? comp.overall_score : 100;
@@ -466,7 +481,6 @@ export default function ScanProductPage() {
                     </p>
                   </div>
 
-                  {/* Score Dial */}
                   <div className="flex items-center gap-4 bg-slate-800/80 p-4 rounded-2xl border border-slate-700 flex-shrink-0">
                     <div className="text-center">
                       <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Compliance Index</span>
@@ -480,7 +494,6 @@ export default function ScanProductPage() {
             );
           })()}
 
-          {/* 8 Mandatory Declarations Checklist */}
           <div className="card-slate p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -535,7 +548,6 @@ export default function ScanProductPage() {
             </div>
           </div>
 
-          {/* Grievance Reporting Card */}
           <div className="card-slate p-6 border-slate-200">
             <h3 className="text-sm font-extrabold text-slate-900">Report Non-Compliance Grievance</h3>
             <p className="text-xs text-slate-500 mt-1">
@@ -569,7 +581,6 @@ export default function ScanProductPage() {
         </div>
       )}
 
-      {/* OCR Raw Text Drawer */}
       <AppDrawer
         isOpen={ocrDrawerOpen}
         onClose={() => setOcrDrawerOpen(false)}
@@ -581,7 +592,6 @@ export default function ScanProductPage() {
         </pre>
       </AppDrawer>
 
-      {/* Rule Detail Explanation Drawer */}
       <AppDrawer
         isOpen={Boolean(activeRuleDrawer)}
         onClose={() => setActiveRuleDrawer(null)}

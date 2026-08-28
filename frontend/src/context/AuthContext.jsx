@@ -9,20 +9,24 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user);
-      else setLoading(false);
+      if (session?.user) {
+        fetchProfile(session.user);
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
     });
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-      if (session?.user) fetchProfile(session.user);
-      else {
+      if (session?.user) {
+        fetchProfile(session.user);
+      } else {
+        setUser(null);
         setProfile(null);
         setLoading(false);
       }
@@ -48,11 +52,9 @@ export function AuthProvider({ children }) {
         .eq("id", userId)
         .maybeSingle();
 
-      if (data) {
+      if (data && data.role) {
         setProfile(data);
       } else {
-        console.warn("Profile not found in DB for user:", userId, error);
-        
         const metaRole = userObj?.user_metadata?.role || "consumer";
         const metaName =
           userObj?.user_metadata?.full_name ||
@@ -65,7 +67,6 @@ export function AuthProvider({ children }) {
           role: metaRole,
         };
 
-        // Try to auto-create missing profile
         const { data: inserted } = await supabase
           .from("users_profile")
           .upsert(fallbackProfile)
@@ -75,7 +76,7 @@ export function AuthProvider({ children }) {
         setProfile(inserted || fallbackProfile);
       }
     } catch (err) {
-      console.error("Error in fetchProfile:", err);
+      console.error("Error fetching user profile:", err);
       if (userObj) {
         setProfile({
           id: userId,
@@ -103,8 +104,15 @@ export function AuthProvider({ children }) {
     if (error) throw error;
 
     if (data.user) {
+      try {
+        await supabase.from("users_profile").upsert({
+          id: data.user.id,
+          full_name: fullName,
+          role: role,
+        });
+      } catch (_) {}
+
       if (data.session) {
-        await new Promise((r) => setTimeout(r, 300));
         await fetchProfile(data.user);
       }
     }
@@ -119,40 +127,25 @@ export function AuthProvider({ children }) {
     });
 
     if (error) throw error;
-    await fetchProfile(data.user);
+    if (data.user) {
+      await fetchProfile(data.user);
+    }
     return data;
   }
 
   async function signOut() {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
-    setUser(null);
-    setProfile(null);
-  }
-
-  async function switchRole(newRole) {
-    if (!user) return;
     try {
-      const { data, error } = await supabase
-        .from("users_profile")
-        .upsert({
-          id: user.id,
-          full_name: profile?.full_name || user.user_metadata?.full_name || user.email?.split("@")[0] || "User",
-          role: newRole,
-        })
-        .select("*")
-        .maybeSingle();
-
-      if (data) {
-        setProfile(data);
-      } else {
-        setProfile((prev) => ({ ...(prev || {}), id: user.id, role: newRole }));
-      }
+      await supabase.auth.signOut();
     } catch (err) {
-      console.warn("Could not update role in DB, setting local state:", err);
-      setProfile((prev) => ({ ...(prev || {}), id: user.id, role: newRole }));
+      console.warn("SignOut exception:", err);
+    } finally {
+      setUser(null);
+      setProfile(null);
+      setLoading(false);
     }
   }
+
+  const effectiveRole = profile?.role || user?.user_metadata?.role || "consumer";
 
   const value = {
     user,
@@ -161,8 +154,11 @@ export function AuthProvider({ children }) {
     signUp,
     signIn,
     signOut,
-    switchRole,
-    role: profile?.role || null,
+    role: effectiveRole,
+    isAdmin: effectiveRole === "admin",
+    isConsumer: effectiveRole === "consumer",
+    isBrand: effectiveRole === "brand",
+    isRegulator: effectiveRole === "regulator",
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
