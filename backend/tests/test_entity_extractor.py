@@ -399,7 +399,11 @@ Country of Origin:
 Republic of India
 Manufactured by:
 ABC Foods Pvt. Ltd.
-Plot 45, Industrial Estate, Gurugram, Haryana - 122001"""
+Plot 45, Industrial Estate, Gurugram, Haryana - 122001
+Batch No:
+AB123456
+Ingredients:
+Wheat Flour, Sugar, Salt"""
         entities = extract_entities_from_text(reordered_label)
 
         self.assertEqual(entities["consumer_care"], "1800-123-4567, care@abcfoods.com")
@@ -409,6 +413,41 @@ Plot 45, Industrial Estate, Gurugram, Haryana - 122001"""
         self.assertEqual(entities["mfg_date"], "10/05/2026")
         self.assertEqual(entities["country_of_origin"], "Republic of India")
         self.assertEqual(entities["manufacturer_name_address"], "ABC Foods Pvt. Ltd., Plot 45, Industrial Estate, Gurugram, Haryana - 122001")
+        self.assertEqual(entities["batch_no"], "AB123456")
+        self.assertEqual(entities["ingredients"], "Wheat Flour, Sugar, Salt")
+
+    def test_batch_and_ingredients_extraction(self):
+        """Test multi-line Batch and Ingredients extraction and inline-word boundary safety."""
+        # 1. Multi-line Batch
+        t_b1 = "Batch No:\nAB123456"
+        self.assertEqual(extract_entities_from_text(t_b1)["batch_no"], "AB123456")
+
+        t_b2 = "Lot Number:\nABC123"
+        self.assertEqual(extract_entities_from_text(t_b2)["batch_no"], "ABC123")
+
+        # 2. Multi-line Ingredients with percentages and parenthetical text
+        t_i1 = """Ingredients:
+Wheat Flour (72%)
+Sugar, Salt
+Raising Agents (INS 500(ii))
+MRP:
+₹200"""
+        ent_i1 = extract_entities_from_text(t_i1)
+        self.assertEqual(ent_i1["ingredients"], "Wheat Flour (72%), Sugar, Salt, Raising Agents (INS 500(ii))")
+        self.assertEqual(ent_i1["mrp"], "200")
+
+        # 3. Ingredients containing word 'MRP' inside value (MRP stabilizer)
+        t_i2 = """Ingredients: Wheat Flour, Sugar, MRP stabilizer, Salt
+MRP: ₹ 150.00"""
+        ent_i2 = extract_entities_from_text(t_i2)
+        self.assertEqual(ent_i2["ingredients"], "Wheat Flour, Sugar, MRP stabilizer, Salt")
+        self.assertEqual(ent_i2["mrp"], "150.00")
+
+    def test_false_positive_resistance(self):
+        """Test that un-labeled numeric strings do not get misinterpreted as legal entities."""
+        unlabeled_text = "Ref Code: 998877 Item # 445566"
+        entities = extract_entities_from_text(unlabeled_text)
+        self.assertIsNone(entities["mrp"])
 
     def test_pairwise_boundary_non_contamination(self):
         """Test specific pairwise adjacent declarations to ensure zero cross-entity leakage."""

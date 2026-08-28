@@ -537,6 +537,70 @@ def _extract_mrp(text: str) -> Optional[str]:
     )
 
 
+BATCH_PREFIXES = [
+    r"\b(?:batch\s*(?:number|num|no\.?)?|lot\s*(?:number|num|no\.?)?)\b\s*[:\.-]?",
+]
+
+BATCH_BOUNDARIES = [
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"batch|lot", b, re.IGNORECASE)
+]
+
+
+def _match_batch_in_str(s: str) -> Optional[str]:
+    """Helper to validate and extract a clean batch/lot number string."""
+    if not s or not s.strip():
+        return None
+    if re.search(r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{2,4})\b", s):
+        return None
+    if re.search(r"\b(?:rs\.?|₹)\s*\d+|\b\d+\s*(?:g|kg|ml|l|ltr|gm)\b", s, re.IGNORECASE):
+        return None
+    if re.search(r"\b1800[-\s]?\d{3}[-\s]?\d{4}\b", s):
+        return None
+
+    match = re.search(r"\b([a-zA-Z0-9\/-]{3,20})\b", s)
+    if match:
+        val = match.group(1).strip(" ,.-")
+        if len(val) >= 3 and val.lower() not in ("date", "mrp", "net", "pack", "code"):
+            return val
+    return None
+
+
+def _extract_batch(text: str) -> Optional[str]:
+    """
+    Extract Batch / Lot Number using shared extraction infrastructure.
+    Supports same-line (e.g. 'Batch No: AB123456') and multi-line declarations (e.g. 'Batch No:\nAB123456').
+    """
+    return _extract_labeled_block(
+        text,
+        role_prefixes=BATCH_PREFIXES,
+        role_boundaries=BATCH_BOUNDARIES,
+        max_continuation_lines=1,
+        line_validator=_match_batch_in_str,
+    )
+
+
+INGREDIENTS_PREFIXES = [
+    r"(?:ingredients|contains)\s*[:\.-]?",
+]
+
+INGREDIENTS_BOUNDARIES = [
+    r"^\s*(?:mrp|max\s*retail\s*price|net\s*wt|net\s*qty|net\s*quantity|net\s*vol|mfg\s*date|mfd|exp|expiry|best\s*before|use\s*by|batch|lot|fssai|lic\s*no|manufactured\s*by|packed\s*by|marketed\s*by|customer\s*care|consumer\s*care|country\s*of\s*origin|made\s*in)\s*[:\.-]?",
+]
+
+
+def _extract_ingredients(text: str) -> Optional[str]:
+    """
+    Extract Ingredients declaration across single or multi-line lists using shared extraction infrastructure.
+    Preserves commas, percentages, and parenthetical details while terminating strictly before subsequent declaration headers.
+    """
+    return _extract_labeled_block(
+        text,
+        role_prefixes=INGREDIENTS_PREFIXES,
+        role_boundaries=INGREDIENTS_BOUNDARIES,
+        max_continuation_lines=4,
+    )
+
+
 def extract_entities_from_text(text: str) -> Dict[str, Any]:
     """
     Apply trained entity recognition patterns to OCR extracted text.
@@ -560,6 +624,8 @@ def extract_entities_from_text(text: str) -> Dict[str, Any]:
         "country_of_origin": None,
         "consumer_care": None,
         "manufacturer_name_address": None,
+        "batch_no": None,
+        "ingredients": None,
     }
 
     if not text or not text.strip():
@@ -597,9 +663,15 @@ def extract_entities_from_text(text: str) -> Dict[str, Any]:
     # 8. Custom Extractor for MRP
     extracted["mrp"] = _extract_mrp(text)
 
-    # 9. Extract remaining entities
+    # 9. Custom Extractor for Batch Number
+    extracted["batch_no"] = _extract_batch(text)
+
+    # 10. Custom Extractor for Ingredients
+    extracted["ingredients"] = _extract_ingredients(text)
+
+    # 11. Extract remaining entities
     for entity_key, regex_list in active_patterns.items():
-        if entity_key in ("net_quantity", "mfg_date", "expiry_date", "manufacturer_name_address", "consumer_care", "country_of_origin", "fssai_lic", "mrp"):
+        if entity_key in ("net_quantity", "mfg_date", "expiry_date", "manufacturer_name_address", "consumer_care", "country_of_origin", "fssai_lic", "mrp", "batch_no", "ingredients"):
             continue
 
         for pattern in regex_list:
