@@ -126,22 +126,116 @@ INV_MONTH_MAP = {
     7: "JUL", 8: "AUG", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"
 }
 
-
-MFG_PREFIX_PATTERN = r"(?:mfg|mfd|manufactured|pkd|packed|pkg|dop|date\s*of\s*mfg|date\s*of\s*packing)\s*(?:date|on)?"
-
-MFG_DATE_BOUNDARIES = [
-    r"\b(?:batch\s*no|batch|lot\s*no|lot)\b",
-    r"\b(?:mrp|max\s*retail\s*price|price)\b",
+# Master Shared Semantic Boundary Registry
+SHARED_SEMANTIC_BOUNDARIES = [
+    r"\b(?:manufactured\s*(?:&|and|/)?\s*packed\s*by|packed\s*(?:&|and|/)?\s*manufactured\s*by)\b",
+    r"\b(?:manufactured\s*by|manufactured\s*at|manufactured\s*in|mfg\.?\s*by|produced\s*by|made\s*by|manufacturer|factory|packed\s*by|pkd\.?\s*by)\b",
+    r"\b(?:marketed\s*by|marketed\s*at|distributed\s*by|imported\s*by|importer)\b",
+    r"\b(?:customer\s*care|consumer\s*care|consumer\s*care\s*executive|customer\s*service|care\s*line|care\s*helpline|toll\s*free|contact\s*us|feedback|help\s*line)\b",
+    r"\b(?:mrp|max\s*retail\s*price|maximum\s*retail\s*price|price)\b",
     r"\b(?:net\s*wt|net\s*weight|net\s*qty|net\s*quantity|net\s*vol|net\s*content|contents)\b",
-    r"\b(?:exp|expiry|best\s*before|use\s*by)\b",
-    r"\b(?:country\s*of\s*origin|made\s*in|product\s*of)\b",
-    r"\b(?:manufactured\s*by|manufactured\s*at|mfg\.?\s*by|packed\s*by|pkd\.?\s*by)\b",
-    r"\b(?:marketed\s*by|marketed\s*at|imported\s*by|importer)\b",
-    r"\b(?:customer\s*care|consumer\s*care|care\s*line|toll\s*free)\b",
-    r"\b(?:fssai|lic\s*no)\b",
+    r"\b(?:mfg\s*date|mfd|manufacturing\s*date|exp|expiry|best\s*before|use\s*by|use\s*within|date\s*of\s*mfg|date\s*of\s*packing)\b",
+    r"\b(?:batch\s*no|batch|lot\s*no|lot)\b",
+    r"\b(?:country\s*of\s*origin|origin\s*country|made\s*in|product\s*of)\b",
+    r"\b(?:fssai|lic\s*no|licence|license)\b",
     r"\b(?:ingredients|nutrition|nutritional)\b",
-    r"\b(?:usp|unit\s*sale\s*price|unit\s*price)\b",
+    r"\b(?:usp|unit\s*sale\s*price|unit\s*price|price\s*per)\b",
+    r"\b(?:www\.|http://|https://)\b",
 ]
+
+
+def _extract_labeled_block(
+    text: str,
+    role_prefixes: list,
+    role_boundaries: list,
+    max_continuation_lines: int = 4,
+    join_separator: str = ", ",
+    line_validator: Optional[callable] = None,
+) -> Optional[str]:
+    """
+    Shared infrastructure helper to extract a labeled packaging block across single or multiple lines.
+    - Scans all lines matching role_prefixes.
+    - Extracts remainder text on starting line (truncating before any boundary).
+    - Collects up to max_continuation_lines on subsequent lines.
+    - Strictly terminates extraction when encountering any pattern in role_boundaries or shared semantic boundaries.
+    """
+    if not text or not text.strip():
+        return None
+
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+
+    for idx, line in enumerate(lines):
+        prefix_matched = None
+        for pattern in role_prefixes:
+            match = re.search(pattern, line, re.IGNORECASE)
+            if match:
+                prefix_matched = match
+                break
+        if not prefix_matched:
+            continue
+
+        start_idx = idx
+        collected_parts = []
+
+        # 1. Check text after prefix on starting line
+        start_line = lines[start_idx]
+        after_prefix = start_line[prefix_matched.end():].strip()
+        after_prefix = re.sub(r"^[:\.-]+", "", after_prefix).strip()
+
+        same_line_boundary_hit = False
+        if after_prefix:
+            for b in role_boundaries:
+                b_match = re.search(b, after_prefix, re.IGNORECASE)
+                if b_match:
+                    same_line_boundary_hit = True
+                    after_prefix = after_prefix[:b_match.start()].strip()
+                    break
+            after_prefix = re.sub(r"[\.,;\-:]+$", "", after_prefix).strip()
+            if after_prefix:
+                if line_validator:
+                    valid_val = line_validator(after_prefix)
+                    if valid_val:
+                        return valid_val
+                else:
+                    collected_parts.append(after_prefix)
+
+        # 2. Collect subsequent lines if allowed
+        if not same_line_boundary_hit and max_continuation_lines > 0:
+            for c_idx in range(start_idx + 1, min(len(lines), start_idx + 1 + max_continuation_lines)):
+                current_line = lines[c_idx]
+
+                hit_boundary = False
+                for boundary in role_boundaries:
+                    if re.search(boundary, current_line, re.IGNORECASE):
+                        hit_boundary = True
+                        break
+
+                if hit_boundary:
+                    break
+
+                if line_validator:
+                    valid_val = line_validator(current_line)
+                    if valid_val:
+                        return valid_val
+                    else:
+                        break
+
+                if current_line:
+                    collected_parts.append(current_line)
+
+        if collected_parts and not line_validator:
+            result = join_separator.join(collected_parts)
+            result = re.sub(r"\s*,\s*,", ",", result)
+            result = result.strip(" ,.-")
+            if len(result) >= 2:
+                return result
+
+    return None
+
+
+MFG_PREFIX_PATTERN = r"(?:mfg|mfd|manufactured(?![\s\w]*by)|packed|pkd|pkg|dop|date\s*of\s*mfg|date\s*of\s*packing|manufacturing\s*date)\s*(?:date|on)?"
+
+MFG_DATE_BOUNDARIES = SHARED_SEMANTIC_BOUNDARIES
 
 
 def _match_date_in_str(s: str) -> Optional[str]:
@@ -167,47 +261,15 @@ def _match_date_in_str(s: str) -> Optional[str]:
 def _extract_mfg_date(text: str) -> Optional[str]:
     """
     Extract manufacturing/packaging date from OCR text across single or multi-line declarations.
-    Supports same-line (e.g., 'Mfg Date: 15/08/2026') and one-line-separated formats (e.g., 'Mfg Date:\n15/08/2026').
-    Terminates strictly before semantic boundaries (Batch, MRP, Net Qty, Best Before) to prevent false positives.
+    Uses shared extraction infrastructure helper.
     """
-    if not text or not text.strip():
-        return None
-
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-
-    for idx, line in enumerate(lines):
-        prefix_match = re.search(MFG_PREFIX_PATTERN, line, re.IGNORECASE)
-        if prefix_match:
-            after_prefix = line[prefix_match.end():].strip()
-            after_prefix = re.sub(r"^[:\.-]+", "", after_prefix).strip()
-
-            if after_prefix:
-                hit_boundary = False
-                for boundary in MFG_DATE_BOUNDARIES:
-                    if re.search(boundary, after_prefix, re.IGNORECASE):
-                        hit_boundary = True
-                        break
-
-                if not hit_boundary:
-                    date_val = _match_date_in_str(after_prefix)
-                    if date_val:
-                        return date_val
-
-            if idx + 1 < len(lines):
-                next_line = lines[idx + 1]
-
-                hit_boundary = False
-                for boundary in MFG_DATE_BOUNDARIES:
-                    if re.search(boundary, next_line, re.IGNORECASE):
-                        hit_boundary = True
-                        break
-
-                if not hit_boundary:
-                    date_val = _match_date_in_str(next_line)
-                    if date_val:
-                        return date_val
-
-    return None
+    return _extract_labeled_block(
+        text,
+        role_prefixes=[MFG_PREFIX_PATTERN],
+        role_boundaries=MFG_DATE_BOUNDARIES,
+        max_continuation_lines=1,
+        line_validator=_match_date_in_str
+    )
 
 
 def _extract_expiry_date(text: str, mfg_date: Optional[str] = None) -> Tuple[Optional[str], bool]:
@@ -231,9 +293,8 @@ def _extract_expiry_date(text: str, mfg_date: Optional[str] = None) -> Tuple[Opt
     if match:
         return match.group(1).strip(), False
 
-    # Duration Calculation Pattern (e.g., Best Before 12 Months, Use within 6 months)
-    # Strictly requires 'best before' / 'use by' / 'expiry' context
-    duration_pattern = r"(?:best\s*before|use\s*by|use\s*within|expiry\s*within)\s*(?:within|of)?\s*(\d{1,2})\s*months?\b"
+    # Duration Calculation Pattern (e.g., Best Before 12 Months, Best Before:\n12 Months)
+    duration_pattern = r"(?:best\s*before|use\s*by|use\s*within|expiry\s*within)\s*[:\.-]?\s*(?:within|of)?\s*(\d{1,2})\s*months?\b"
     match = re.search(duration_pattern, text, re.IGNORECASE)
     if match and mfg_date:
         months_to_add = int(match.group(1))
@@ -273,86 +334,20 @@ MANUFACTURER_ROLE_PREFIXES = [
 ]
 
 MANUFACTURER_BOUNDARIES = [
-    r"\b(?:marketed\s*by|marketed\s*at|distributed\s*by|imported\s*by|importer)\b",
-    r"\b(?:customer\s*care|consumer\s*care|care\s*line|toll\s*free|contact\s*us|feedback|email|phone|helpline)\b",
-    r"\b(?:mrp|max\s*retail\s*price|maximum\s*retail\s*price|price)\b",
-    r"\b(?:net\s*wt|net\s*weight|net\s*qty|net\s*quantity|net\s*vol|net\s*content|contents)\b",
-    r"\b(?:mfg\s*date|mfd|manufacturing\s*date|exp|expiry|best\s*before|use\s*by)\b",
-    r"\b(?:batch\s*no|batch|lot\s*no|lot)\b",
-    r"\b(?:country\s*of\s*origin|made\s*in|product\s*of)\b",
-    r"\b(?:fssai|lic\s*no|licence|license)\b",
-    r"\b(?:ingredients|nutrition|nutritional)\b",
-    r"\b(?:www\.|http://|https://)\b",
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"manufactur|packed|pkd", b, re.IGNORECASE)
 ]
 
 
 def _extract_manufacturer_name_address(text: str) -> Optional[str]:
     """
-    Extract Manufacturer/Packer Name & Address across multiple lines.
-    Terminates extraction strictly at semantic boundaries (Marketed by, Customer Care, MRP, Net Qty, etc.)
-    to preserve role separation and prevent entity contamination.
+    Extract Manufacturer/Packer Name & Address using shared extraction infrastructure.
     """
-    if not text or not text.strip():
-        return None
-
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-
-    start_idx = -1
-    prefix_matched = None
-
-    for idx, line in enumerate(lines):
-        for pattern in MANUFACTURER_ROLE_PREFIXES:
-            match = re.search(pattern, line, re.IGNORECASE)
-            if match:
-                start_idx = idx
-                prefix_matched = match
-                break
-        if start_idx != -1:
-            break
-
-    if start_idx == -1:
-        return None
-
-    collected_parts = []
-
-    # Check text after prefix on the starting line
-    start_line = lines[start_idx]
-    after_prefix = start_line[prefix_matched.end():].strip()
-    after_prefix = re.sub(r"^[:\.-]+", "", after_prefix).strip()
-    if after_prefix:
-        collected_parts.append(after_prefix)
-
-    # Collect subsequent lines until a boundary line is reached
-    max_lines_to_read = 4
-    for idx in range(start_idx + 1, min(len(lines), start_idx + 1 + max_lines_to_read)):
-        current_line = lines[idx]
-
-        # Stop if line hits any boundary
-        hit_boundary = False
-        for boundary in MANUFACTURER_BOUNDARIES:
-            if re.search(boundary, current_line, re.IGNORECASE):
-                hit_boundary = True
-                break
-
-        if not hit_boundary:
-            for pattern in MANUFACTURER_ROLE_PREFIXES:
-                if re.search(pattern, current_line, re.IGNORECASE):
-                    hit_boundary = True
-                    break
-
-        if hit_boundary:
-            break
-
-        if current_line:
-            collected_parts.append(current_line)
-
-    if not collected_parts:
-        return None
-
-    result = ", ".join(collected_parts)
-    result = re.sub(r"\s*,\s*,", ",", result)
-    result = result.strip(" ,.-")
-    return result if len(result) > 2 else None
+    return _extract_labeled_block(
+        text,
+        role_prefixes=MANUFACTURER_ROLE_PREFIXES,
+        role_boundaries=MANUFACTURER_BOUNDARIES,
+        max_continuation_lines=4
+    )
 
 
 CONSUMER_CARE_ROLE_PREFIXES = [
@@ -360,81 +355,30 @@ CONSUMER_CARE_ROLE_PREFIXES = [
 ]
 
 CONSUMER_CARE_BOUNDARIES = [
-    r"\b(?:manufactured\s*by|manufactured\s*at|manufactured\s*in|mfg\.?\s*by|produced\s*by|made\s*by|manufacturer|factory|packed\s*by|pkd\.?\s*by)\b",
-    r"\b(?:marketed\s*by|marketed\s*at|distributed\s*by|imported\s*by|importer)\b",
-    r"\b(?:mrp|max\s*retail\s*price|maximum\s*retail\s*price|price)\b",
-    r"\b(?:net\s*wt|net\s*weight|net\s*qty|net\s*quantity|net\s*vol|net\s*content|contents)\b",
-    r"\b(?:mfg\s*date|mfd|manufacturing\s*date|exp|expiry|best\s*before|use\s*by)\b",
-    r"\b(?:batch\s*no|batch|lot\s*no|lot)\b",
-    r"\b(?:country\s*of\s*origin|made\s*in|product\s*of)\b",
-    r"\b(?:fssai|lic\s*no|licence|license)\b",
-    r"\b(?:ingredients|nutrition|nutritional)\b",
-    r"\b(?:usp|unit\s*sale\s*price|unit\s*price|price\s*per)\b",
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"customer\s*care|consumer\s*care|care\s*line|helpline|toll\s*free|contact\s*us|feedback", b, re.IGNORECASE)
 ]
 
 
 def _extract_consumer_care(text: str) -> Optional[str]:
     """
-    Extract Consumer Care details (Executive, Toll-Free Phone, Email, Website) across multiple lines.
-    Terminates extraction strictly at semantic boundaries (Manufactured by, Marketed by, MRP, Net Qty, etc.)
-    to prevent entity contamination.
+    Extract Consumer Care details using shared extraction infrastructure.
     """
-    if not text or not text.strip():
-        return None
+    res = _extract_labeled_block(
+        text,
+        role_prefixes=CONSUMER_CARE_ROLE_PREFIXES,
+        role_boundaries=CONSUMER_CARE_BOUNDARIES,
+        max_continuation_lines=4
+    )
+    if res:
+        return res
 
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-
-    start_idx = -1
-    prefix_matched = None
-
-    for idx, line in enumerate(lines):
-        for pattern in CONSUMER_CARE_ROLE_PREFIXES:
-            match = re.search(pattern, line, re.IGNORECASE)
-            if match:
-                start_idx = idx
-                prefix_matched = match
-                break
-        if start_idx != -1:
-            break
-
-    collected_parts = []
-
-    if start_idx != -1:
-        start_line = lines[start_idx]
-        after_prefix = start_line[prefix_matched.end():].strip()
-        after_prefix = re.sub(r"^[:\.-]+", "", after_prefix).strip()
-        if after_prefix:
-            collected_parts.append(after_prefix)
-
-        max_lines_to_read = 4
-        for idx in range(start_idx + 1, min(len(lines), start_idx + 1 + max_lines_to_read)):
-            current_line = lines[idx]
-
-            hit_boundary = False
-            for boundary in CONSUMER_CARE_BOUNDARIES:
-                if re.search(boundary, current_line, re.IGNORECASE):
-                    hit_boundary = True
-                    break
-
-            if hit_boundary:
-                break
-
-            if current_line:
-                collected_parts.append(current_line)
-
-    if not collected_parts:
-        match = re.search(r"\b(1800[-\s]?\d{3}[-\s]?\d{4})\b", text)
-        if match:
-            return match.group(1)
-        match = re.search(r"\b([a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9.-]+\.)+[a-zA-Z]{2,})\b", text)
-        if match:
-            return match.group(1)
-        return None
-
-    result = ", ".join(collected_parts)
-    result = re.sub(r"\s*,\s*,", ",", result)
-    result = result.strip(" ,.-")
-    return result if len(result) > 2 else None
+    match = re.search(r"\b(1800[-\s]?\d{3}[-\s]?\d{4})\b", text)
+    if match:
+        return match.group(1)
+    match = re.search(r"\b([a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9.-]+\.)+[a-zA-Z]{2,})\b", text)
+    if match:
+        return match.group(1)
+    return None
 
 
 def extract_entities_with_evidence(raw_text: str, normalized_text: Optional[str] = None) -> Dict[str, Any]:
@@ -501,52 +445,20 @@ COUNTRY_ORIGIN_PREFIXES = [
     r"(?:made\s*in|product\s*of|produced\s*in|manufactured\s*in|imported\s*from)\s*[:\.-]?",
 ]
 
-ORIGIN_BOUNDARIES = [
-    r"\b(?:manufactured\s*by|manufactured\s*at|mfg\.?\s*by|produced\s*by|made\s*by|manufacturer|factory|packed\s*by|pkd\.?\s*by)\b",
-    r"\b(?:marketed\s*by|marketed\s*at|distributed\s*by|imported\s*by|importer)\b",
-    r"\b(?:customer\s*care|consumer\s*care|care\s*line|toll\s*free|contact\s*us|feedback|email|phone|helpline)\b",
-    r"\b(?:mrp|max\s*retail\s*price|maximum\s*retail\s*price|price)\b",
-    r"\b(?:net\s*wt|net\s*weight|net\s*qty|net\s*quantity|net\s*vol|net\s*content|contents)\b",
-    r"\b(?:mfg\s*date|mfd|manufacturing\s*date|exp|expiry|best\s*before|use\s*by)\b",
-    r"\b(?:batch\s*no|batch|lot\s*no|lot)\b",
-    r"\b(?:fssai|lic\s*no|licence|license)\b",
-    r"\b(?:ingredients|nutrition|nutritional)\b",
-    r"\b(?:usp|unit\s*sale\s*price|unit\s*price|price\s*per)\b",
-    r"\b(?:www\.|http://|https://)\b",
-]
+ORIGIN_BOUNDARIES = SHARED_SEMANTIC_BOUNDARIES
 
 
 def _extract_country_of_origin(text: str) -> Optional[str]:
     """
-    Extract Country of Origin (e.g. 'Republic of India', 'United States of America', 'India')
-    using explicit origin headers (Country of Origin, Made in, Product of, etc.).
-    Terminates extraction strictly before unrelated packaging fields (Manufactured by, MRP, Net Qty, etc.)
-    to prevent entity contamination.
+    Extract Country of Origin using shared extraction infrastructure.
+    Supports same-line and one-line-separated declarations.
     """
-    if not text or not text.strip():
-        return None
-
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
-
-    for line in lines:
-        for prefix_pat in COUNTRY_ORIGIN_PREFIXES:
-            match = re.search(prefix_pat, line, re.IGNORECASE)
-            if match:
-                remainder = line[match.end():].strip()
-                remainder = re.sub(r"^[:\.-]+", "", remainder).strip()
-                if not remainder:
-                    continue
-
-                for boundary in ORIGIN_BOUNDARIES:
-                    b_match = re.search(boundary, remainder, re.IGNORECASE)
-                    if b_match:
-                        remainder = remainder[:b_match.start()].strip()
-
-                remainder = re.sub(r"[\.,;\-:]+$", "", remainder).strip()
-                if remainder and len(remainder) >= 2:
-                    return remainder
-
-    return None
+    return _extract_labeled_block(
+        text,
+        role_prefixes=COUNTRY_ORIGIN_PREFIXES,
+        role_boundaries=ORIGIN_BOUNDARIES,
+        max_continuation_lines=1
+    )
 
 
 def extract_entities_from_text(text: str) -> Dict[str, Any]:

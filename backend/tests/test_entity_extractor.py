@@ -9,7 +9,7 @@ from pathlib import Path
 backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
-from services.entity_extractor import extract_entities_from_text
+from services.entity_extractor import extract_entities_from_text, extract_entities_with_evidence
 
 
 class TestEntityExtractorNetQuantity(unittest.TestCase):
@@ -296,6 +296,57 @@ New Delhi - 110020"""
 
         t_b4 = "Mfg Date:\nUSP ₹2.60/ml"
         self.assertIsNone(extract_entities_from_text(t_b4)["mfg_date"])
+
+    def test_cross_entity_isolation_and_adversarial_ocr(self):
+        """Test full cross-entity isolation across adjacent declarations with adversarial line breaks and boundary protection."""
+        full_label = """Manufactured by:
+ABC Foods Pvt. Ltd.
+Plot 14, Industrial Area
+New Delhi - 110020
+Customer Care:
+1800-123-4567
+care@abcfoods.com
+Country of Origin:
+Republic of India
+Mfg Date:
+15/08/2026
+Best Before:
+12 Months
+Net Qty:
+2 N x 100 g = 200 g
+MRP:
+₹200"""
+        entities = extract_entities_from_text(full_label)
+        detailed = extract_entities_with_evidence(full_label)
+
+        # 1. Manufacturer isolation
+        self.assertEqual(entities["manufacturer_name_address"], "ABC Foods Pvt. Ltd., Plot 14, Industrial Area, New Delhi - 110020")
+        self.assertNotIn("Customer Care", entities["manufacturer_name_address"])
+        self.assertNotIn("1800-123-4567", entities["manufacturer_name_address"])
+
+        # 2. Consumer care isolation
+        self.assertIn("1800-123-4567", entities["consumer_care"])
+        self.assertIn("care@abcfoods.com", entities["consumer_care"])
+        self.assertNotIn("Manufactured", entities["consumer_care"])
+
+        # 3. Country of origin isolation
+        self.assertEqual(entities["country_of_origin"], "Republic of India")
+        self.assertNotIn("Mfg Date", entities["country_of_origin"])
+
+        # 4. Manufacturing date isolation
+        self.assertEqual(entities["mfg_date"], "15/08/2026")
+        self.assertNotIn("Best Before", entities["mfg_date"])
+        self.assertEqual(detailed["mfg_date"]["source"], "IMAGE")
+
+        # 5. Expiry date calculation & provenance
+        self.assertEqual(entities["expiry_date"], "AUG 2027")
+        self.assertEqual(detailed["expiry_date"]["source"], "INFERENCE")
+
+        # 6. Net quantity explicit total preference
+        self.assertEqual(entities["net_quantity"], "200 g")
+
+        # 7. MRP isolation
+        self.assertEqual(entities["mrp"], "200")
 
 
 if __name__ == "__main__":
