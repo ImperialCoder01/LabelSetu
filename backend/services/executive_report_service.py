@@ -258,7 +258,7 @@ def admin_review_case(
                 user_id=officer_id,
                 title=f"Case Decision: {existing.get('case_number')}",
                 message=f"Admin {decision.lower()} case recommendation: {decision_data.comments or ''}".strip(),
-                notif_type="STATUS_CHANGE",
+                notif_type="INFO",
                 entity_type="executive_report",
                 entity_id=report_id,
             )

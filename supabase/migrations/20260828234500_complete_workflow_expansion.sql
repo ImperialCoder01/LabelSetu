@@ -3,11 +3,58 @@
 -- Date: 2026-08-28
 -- Description: Creates authoritative products registry, historical version snapshots,
 --              consumer verification event logging, executive officer enforcement cases,
---              and in-app notification alerts with full RLS policies and indexes.
+--              product barcodes, and in-app notification alerts with full RLS policies and indexes.
 -- ============================================================
 
 -- ============================================================
--- 1. TABLE: products (Authoritative Manufacturer Product Registry)
+-- 0. USERS_PROFILE STATUS COLUMN (if not present)
+-- ============================================================
+ALTER TABLE IF EXISTS users_profile ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+
+
+-- ============================================================
+-- 1. TABLE: product_barcodes (Fast Barcode Cache & Registry)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS product_barcodes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    barcode TEXT UNIQUE NOT NULL,
+    product_name TEXT NOT NULL,
+    brand TEXT,
+    category TEXT,
+    net_quantity TEXT,
+    mrp NUMERIC(10, 2),
+    manufacturer TEXT,
+    country_of_origin TEXT DEFAULT 'India',
+    fssai_lic TEXT,
+    ingredients TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_barcodes_barcode ON product_barcodes(barcode);
+
+ALTER TABLE product_barcodes ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Anyone can view product barcodes' AND tablename = 'product_barcodes') THEN
+        CREATE POLICY "Anyone can view product barcodes"
+            ON product_barcodes FOR SELECT
+            USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Admins can insert product barcodes' AND tablename = 'product_barcodes') THEN
+        CREATE POLICY "Admins can insert product barcodes"
+            ON product_barcodes FOR INSERT
+            WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Admins can update product barcodes' AND tablename = 'product_barcodes') THEN
+        CREATE POLICY "Admins can update product barcodes"
+            ON product_barcodes FOR UPDATE
+            USING (true);
+    END IF;
+END $$;
+
+
+-- ============================================================
+-- 2. TABLE: products (Authoritative Manufacturer Product Registry)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS products (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -87,7 +134,7 @@ END $$;
 
 
 -- ============================================================
--- 2. TABLE: product_versions (Historical Snapshots & Revisions)
+-- 3. TABLE: product_versions (Historical Snapshots & Revisions)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS product_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -127,7 +174,7 @@ END $$;
 
 
 -- ============================================================
--- 3. TABLE: product_verifications (Consumer Scan & Verification Event Log)
+-- 4. TABLE: product_verifications (Consumer Scan & Verification Event Log)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS product_verifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -172,7 +219,7 @@ END $$;
 
 
 -- ============================================================
--- 4. TABLE: executive_reports (Executive Officer / Regulator Case Reports)
+-- 5. TABLE: executive_reports (Executive Officer / Regulator Case Reports)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS executive_reports (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -245,7 +292,7 @@ END $$;
 
 
 -- ============================================================
--- 5. TABLE: notifications (User Alerts & Workflow Notifications)
+-- 6. TABLE: notifications (User Alerts & Workflow Notifications)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
