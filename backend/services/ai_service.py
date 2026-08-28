@@ -12,6 +12,7 @@ under the deterministic Legal Metrology Rule Engine (services/rule_engine.py).
 Groq AI operates as a non-blocking supplementary intelligence layer.
 """
 
+import os
 import json
 import logging
 import httpx

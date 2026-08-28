@@ -76,6 +76,11 @@ async def scan(
         upload_list.append(file)
 
     barcode_clean = barcode.strip() if barcode else None
+    if barcode_clean and len(barcode_clean) > 64:
+        raise HTTPException(
+            status_code=400,
+            detail="Barcode string is too long. Standard barcodes are 8 to 14 digits (max 64 characters).",
+        )
 
     if len(upload_list) == 0 and not barcode_clean:
         raise HTTPException(
