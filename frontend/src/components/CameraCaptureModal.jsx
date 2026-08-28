@@ -5,6 +5,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
  *
  * Provides a live webcam viewfinder for PC/desktop and compatible browsers,
  * allowing direct packaging photo capture into the LabelSetu multi-image evidence pipeline.
+ * Includes camera rotation/switch support (Rear/Front or Multi-camera switching).
  *
  * Props:
  *   isOpen (boolean): controls modal visibility
@@ -18,6 +19,9 @@ export default function CameraCaptureModal({ isOpen, onCapture, onClose, onFallb
   const [cameraStatus, setCameraStatus] = useState("INITIALIZING"); // INITIALIZING | READY | ERROR
   const [errorMessage, setErrorMessage] = useState("");
   const [isCapturing, setIsCapturing] = useState(false);
+  const [facingMode, setFacingMode] = useState("environment"); // "environment" | "user"
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [currentDeviceIndex, setCurrentDeviceIndex] = useState(0);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -33,7 +37,18 @@ export default function CameraCaptureModal({ isOpen, onCapture, onClose, onFallb
     }
   }, []);
 
-  const startCamera = useCallback(async () => {
+  // Enumerate all available camera video input devices
+  const updateDeviceList = useCallback(async () => {
+    if (!navigator?.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      setVideoDevices(videoInputs);
+    } catch (_) {}
+  }, []);
+
+  const startCamera = useCallback(async (mode = facingMode, deviceId = null) => {
+    stopCamera();
     setCameraStatus("INITIALIZING");
     setErrorMessage("");
 
@@ -44,18 +59,25 @@ export default function CameraCaptureModal({ isOpen, onCapture, onClose, onFallb
     }
 
     try {
-      // Attempt rear/environment camera first, fall back to default video
+      let constraints = {
+        video: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      };
+
+      if (deviceId) {
+        constraints.video.deviceId = { exact: deviceId };
+      } else {
+        constraints.video.facingMode = { ideal: mode };
+      }
+
       let stream;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: "environment" },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        });
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
       } catch (_) {
+        // Fallback to basic video constraint if specific device/resolution fails
         stream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false,
@@ -68,6 +90,7 @@ export default function CameraCaptureModal({ isOpen, onCapture, onClose, onFallb
         await videoRef.current.play();
       }
       setCameraStatus("READY");
+      await updateDeviceList();
     } catch (err) {
       console.warn("[CameraCaptureModal] Camera initialization error:", err);
       setCameraStatus("ERROR");
@@ -81,18 +104,32 @@ export default function CameraCaptureModal({ isOpen, onCapture, onClose, onFallb
         setErrorMessage(`Unable to access camera (${err.message || "Unknown error"}). Please upload a photo instead.`);
       }
     }
-  }, []);
+  }, [facingMode, stopCamera, updateDeviceList]);
+
+  // Toggle/switch to next camera device or flip front/rear facing mode
+  const handleSwitchCamera = useCallback(() => {
+    if (videoDevices.length > 1) {
+      const nextIndex = (currentDeviceIndex + 1) % videoDevices.length;
+      setCurrentDeviceIndex(nextIndex);
+      const nextDevice = videoDevices[nextIndex];
+      startCamera(facingMode, nextDevice.deviceId);
+    } else {
+      const nextMode = facingMode === "environment" ? "user" : "environment";
+      setFacingMode(nextMode);
+      startCamera(nextMode);
+    }
+  }, [videoDevices, currentDeviceIndex, facingMode, startCamera]);
 
   useEffect(() => {
     if (isOpen) {
-      startCamera();
+      startCamera(facingMode);
     } else {
       stopCamera();
     }
     return () => {
       stopCamera();
     };
-  }, [isOpen, startCamera, stopCamera]);
+  }, [isOpen]);
 
   // Handle ESC key to dismiss modal
   useEffect(() => {
@@ -169,16 +206,30 @@ export default function CameraCaptureModal({ isOpen, onCapture, onClose, onFallb
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              stopCamera();
-              onClose?.();
-            }}
-            className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center text-sm font-bold transition-colors"
-          >
-            ✕
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Switch Camera Button in Header */}
+            {cameraStatus === "READY" && (
+              <button
+                type="button"
+                onClick={handleSwitchCamera}
+                title="Switch Camera (Flip / Next Camera)"
+                className="h-8 px-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center gap-1.5 text-xs font-bold transition-all active:scale-95"
+              >
+                <span>🔄</span>
+                <span className="hidden sm:inline">Switch</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                stopCamera();
+                onClose?.();
+              }}
+              className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white flex items-center justify-center text-sm font-bold transition-colors"
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* Viewport Body */}
@@ -235,6 +286,25 @@ export default function CameraCaptureModal({ isOpen, onCapture, onClose, onFallb
                 </div>
               </div>
             )}
+
+            {/* Floating Quick-Switch Camera Overlay Button */}
+            {cameraStatus === "READY" && (
+              <button
+                type="button"
+                onClick={handleSwitchCamera}
+                title="Switch Camera"
+                className="absolute top-3 right-3 p-2 rounded-xl bg-slate-950/70 hover:bg-slate-900 text-white backdrop-blur-sm border border-slate-700 shadow-md flex items-center gap-1.5 text-xs font-semibold transition-all active:scale-95"
+              >
+                <span className="text-sm">🔄</span>
+                <span className="text-[10px] font-mono uppercase tracking-wide">
+                  {videoDevices.length > 1
+                    ? `Cam ${currentDeviceIndex + 1}/${videoDevices.length}`
+                    : facingMode === "environment"
+                    ? "Rear"
+                    : "Front"}
+                </span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -252,24 +322,36 @@ export default function CameraCaptureModal({ isOpen, onCapture, onClose, onFallb
           </button>
 
           {cameraStatus === "READY" && (
-            <button
-              type="button"
-              onClick={handleCapturePhoto}
-              disabled={isCapturing}
-              className="flex-2 py-2.5 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/60 transition-all active:scale-95"
-            >
-              {isCapturing ? (
-                <>
-                  <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  <span>Capturing...</span>
-                </>
-              ) : (
-                <>
-                  <span>📸</span>
-                  <span>Capture Photo</span>
-                </>
-              )}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={handleSwitchCamera}
+                className="py-2.5 px-3 rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-300 hover:text-white font-bold text-xs flex items-center gap-1.5 transition-colors"
+                title="Switch / Rotate Camera"
+              >
+                <span>🔄</span>
+                <span className="hidden sm:inline">Flip</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCapturePhoto}
+                disabled={isCapturing}
+                className="flex-2 py-2.5 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-950/60 transition-all active:scale-95"
+              >
+                {isCapturing ? (
+                  <>
+                    <span className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    <span>Capturing...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>📸</span>
+                    <span>Capture Photo</span>
+                  </>
+                )}
+              </button>
+            </>
           )}
 
           {cameraStatus === "ERROR" && onFallbackUpload && (
