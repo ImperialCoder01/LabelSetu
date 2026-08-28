@@ -76,7 +76,7 @@ export default function AdminApiUsage() {
     );
   }
 
-  const { provider, request_count = 0, quota_limit = 25000, usage_percent = 0, warning = false, month = "", groq_available = true, groq_model = "openai/gpt-oss-20b" } = data || {};
+  const { provider, request_count = 0, quota_limit = 25000, usage_percent = 0, warning = false, month = "", groq_available = true, groq_model = "openai/gpt-oss-20b", external_research_enabled = true } = data || {};
   const isCloud = provider === "cloud";
 
   return (
@@ -184,6 +184,37 @@ export default function AdminApiUsage() {
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                 <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px] block">Role in Pipeline</span>
                 <span className="font-bold text-slate-800 mt-0.5 block">Supplementary Semantics & Recommendations (Non-Blocking)</span>
+              </div>
+            </div>
+          </div>
+
+          {/* External Product Research Engine Card */}
+          <div className="card-slate p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-base shadow-xs">
+                  🌐
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900">External Product Research Engine</h3>
+                  <p className="text-xs text-slate-500">Public GTIN catalog & Open Food Facts cross-referencing</p>
+                </div>
+              </div>
+              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-extrabold ${
+                external_research_enabled ? "bg-sky-50 text-sky-700 border border-sky-200" : "bg-slate-100 text-slate-600 border border-slate-200"
+              }`}>
+                {external_research_enabled ? "ACTIVE (OFFICIAL & PUBLIC CATALOGS)" : "DISABLED"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px] block">Authoritative Sources</span>
+                <span className="font-bold text-slate-800 mt-0.5 block">National FMCG Catalog & Open Food Facts Database</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px] block">Legal Safety Contract</span>
+                <span className="font-bold text-slate-800 mt-0.5 block">Evidence Segregated (Never overrides physical package rule score)</span>
               </div>
             </div>
           </div>

@@ -174,6 +174,7 @@ class UsageResponse(BaseModel):
     warning: bool
     groq_available: bool = True
     groq_model: str = "openai/gpt-oss-20b"
+    external_research_enabled: bool = True
 
 
 @router.get("/usage", response_model=UsageResponse)
@@ -219,4 +220,5 @@ async def get_usage(admin: dict = Depends(require_role("admin"))):
         warning=usage_percent > 80,
         groq_available=groq_active,
         groq_model=GROQ_MODEL if groq_active else "None",
+        external_research_enabled=True,
     )

@@ -104,13 +104,19 @@ Perform semantic interpretation and return ONLY valid JSON matching this schema:
   "explanation": "concise 2-sentence plain English summary of package label declarations"
 }}"""
 
+    system_instructions = (
+        "You are an expert Legal Metrology AI assistant. "
+        "You must distinguish strictly between facts directly supported by uploaded package evidence and external references. "
+        "Never convert a missing or failed legal declaration into a pass using external data. "
+        "Never invent MRP, batch numbers, manufacturing dates, or expiry dates. "
+        "The deterministic Legal Metrology rule engine is the sole authority for legal pass/fail scoring. "
+        "Output strictly valid JSON without markdown fences."
+    )
+
     payload = {
         "model": GROQ_MODEL,
         "messages": [
-            {
-                "role": "system",
-                "content": "You are a Legal Metrology packaging compliance AI. Output strictly valid JSON without markdown fences.",
-            },
+            {"role": "system", "content": system_instructions},
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.1,

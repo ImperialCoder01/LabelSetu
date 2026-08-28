@@ -648,6 +648,122 @@ export default function ScanProductPage() {
             </div>
           )}
 
+          {/* AI-Assisted Supplementary Product Research & Missing Panel Recovery */}
+          {lastResult.external_research && lastResult.external_research.status === "success" && (
+            <div className="card-slate p-6 space-y-5 border-sky-200 bg-gradient-to-b from-sky-50/30 to-white">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200/80 pb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-sm shadow-xs">
+                    🌐
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
+                        AI-Assisted Supplementary Product Research
+                      </h3>
+                      {lastResult.external_research.product_match?.status && (
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${
+                          lastResult.external_research.product_match.status === "high_confidence"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-300"
+                            : lastResult.external_research.product_match.status === "medium_confidence"
+                            ? "bg-amber-50 text-amber-700 border-amber-300"
+                            : "bg-slate-100 text-slate-600 border-slate-300"
+                        }`}>
+                          {lastResult.external_research.product_match.status.replace("_", " ")} ({Math.round((lastResult.external_research.product_match.confidence || 0) * 100)}%)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Matched: <strong className="text-slate-800 font-bold">{lastResult.external_research.product_match?.matched_brand} {lastResult.external_research.product_match?.matched_product}</strong>
+                    </p>
+                  </div>
+                </div>
+
+                {lastResult.external_research.sources && lastResult.external_research.sources.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {lastResult.external_research.sources.map((src, sIdx) => (
+                      <a
+                        key={sIdx}
+                        href={src.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] font-bold text-sky-700 hover:text-sky-900 bg-sky-50 border border-sky-200 px-2.5 py-1 rounded-lg hover:bg-sky-100 transition-colors inline-flex items-center gap-1"
+                      >
+                        <span>🔗</span>
+                        <span>{src.name}</span>
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Recovered Reference Declarations vs Package Evidence */}
+              {lastResult.external_research.fields && lastResult.external_research.fields.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                      Missing Package Declarations & External Catalog References
+                    </h4>
+                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                      REQUIRES PACKAGE VERIFICATION
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {lastResult.external_research.fields.map((field, fIdx) => (
+                      <div key={fIdx} className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs space-y-2">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                          <span className="text-xs font-black text-slate-900">{field.field_name}</span>
+                          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 self-start sm:self-auto">
+                            {field.verification_status.replace(/_/g, " ")}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                          <div className="p-2.5 rounded-lg bg-red-50/60 border border-red-200 text-red-900">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-red-700 block">Package Evidence</span>
+                            <span className="font-semibold block mt-0.5">Not detected in uploaded image</span>
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-sky-50/60 border border-sky-200 text-sky-950">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700 block">External Catalog Reference</span>
+                            <span className="font-bold font-mono block mt-0.5">{field.value}</span>
+                          </div>
+                        </div>
+
+                        <p className="text-[11px] text-slate-500 leading-relaxed italic">
+                          ℹ️ {field.explanation}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Recommended Additional Package Photos */}
+              {lastResult.external_research.recommended_photos && lastResult.external_research.recommended_photos.length > 0 && (
+                <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-900 font-extrabold">
+                    <span className="text-base">📸</span>
+                    <span>Recommended Additional Package Photos for 100% Verification</span>
+                  </div>
+                  <ul className="space-y-1 text-emerald-950 pl-5 list-disc">
+                    {lastResult.external_research.recommended_photos.map((recPhoto, pIdx) => (
+                      <li key={pIdx} className="leading-relaxed">
+                        {recPhoto}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Mandatory Legal Evidence Disclaimer */}
+              <div className="p-3 rounded-xl bg-slate-100 border border-slate-200 text-[11px] text-slate-600 leading-relaxed">
+                <strong>Legal Evidence Notice:</strong> Internet and catalog references are supplementary assistance tools. Under the Legal Metrology (Packaged Commodities) Rules, 2011, statutory compliance is assessed solely on physical packaging declarations. External data does not alter legal scores or convert missing declarations to verified.
+              </div>
+            </div>
+          )}
+
           <div className="card-slate p-6 border-slate-200">
             <h3 className="text-sm font-extrabold text-slate-900">Report Non-Compliance Grievance</h3>
             <p className="text-xs text-slate-500 mt-1">

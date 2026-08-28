@@ -19,6 +19,7 @@ from services.barcode_service import lookup_barcode, detect_manufacturer_mismatc
 from services.image_processor import analyze_image_quality, classify_image_content
 from services.entity_extractor import extract_entities_with_evidence
 from services.ai_service import analyze_label_with_groq, is_groq_available
+from services.product_research_service import research_product_information
 
 router = APIRouter()
 
@@ -195,6 +196,26 @@ async def scan(
             "message": "No OCR text detected for AI analysis.",
         }
 
+    # ---- Supplementary External Product Research (Non-Blocking) ----
+    external_research = None
+    try:
+        external_research = research_product_information(
+            ocr_text=full_text,
+            extracted_entities=image_results[0].get("extracted_entities") if image_results else {},
+            missing_fields=compliance_report.get("fields", []),
+            barcode=barcode_clean,
+        )
+    except Exception as exc:
+        external_research = {
+            "status": "unavailable",
+            "message": "External product research temporarily unavailable.",
+            "product_match": {"status": "unavailable", "confidence": 0.0},
+            "sources": [],
+            "fields": [],
+            "recommended_photos": [],
+            "warnings": ["External product lookup could not be completed."],
+        }
+
     # Save to Supabase
     missing_field_ids = [f["field_id"] for f in compliance_report["fields"] if f["status"] == "fail"]
     scan_data = {
@@ -243,6 +264,7 @@ async def scan(
         "classification": image_results[0]["classification"] if image_results else {"classification": "PRODUCT_LABEL"},
         "compliance": compliance_report,
         "ai_analysis": ai_analysis,
+        "external_research": external_research,
         "saved": saved,
     }
 
