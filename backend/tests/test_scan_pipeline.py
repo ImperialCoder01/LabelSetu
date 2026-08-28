@@ -25,8 +25,8 @@ sb_url = settings.SUPABASE_URL or "https://pmcoytoyqzfcbvgvbkro.supabase.co"
 service_role_key = settings.SUPABASE_SERVICE_ROLE_KEY or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
 auth_url = f"{sb_url}/auth/v1/token?grant_type=password"
-test_email = "consumer_audit@example.com"
-test_password = "Password123!"
+test_email = "consumer@labelsetu.test"
+test_password = "Consumer@12345"
 
 with httpx.Client(timeout=15.0) as client:
     res = client.post(auth_url, json={"email": test_email, "password": test_password}, headers={"apikey": service_role_key, "Content-Type": "application/json"})
