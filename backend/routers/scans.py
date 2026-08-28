@@ -155,22 +155,8 @@ async def scan(
 
     if barcode_data and any(img["classification"].get("panel_type") != "BARCODE_CATALOG" for img in image_results):
         manufacturer_mismatch = detect_manufacturer_mismatch(full_text, barcode_data)
-        if manufacturer_mismatch and not manufacturer_mismatch["match"]:
-            mismatch_field = {
-                "field_id": "barcode_brand_match",
-                "field_name": "Barcode-Brand Cross-Check",
-                "severity": "Critical",
-                "status": "fail",
-                "evidence_status": "CONFIRMED_MISSING",
-                "matched_keyword": None,
-                "description": manufacturer_mismatch["mismatch_detail"],
-                "reason": "Registered barcode manufacturer does not match packaging text.",
-                "score_impact": -15
-            }
-            compliance_report["fields"].append(mismatch_field)
-            compliance_report["critical_failures"].append(mismatch_field)
-            compliance_report["failed"] += 1
-            compliance_report["overall_score"] = max(0, compliance_report["overall_score"] - 15)
+        # CRITICAL SAFETY: External barcode/catalog mismatches generate warning flags ONLY.
+        # They do NOT alter the deterministic statutory compliance score.
 
     # ---- Supplementary Groq AI Analysis (Non-Blocking) ----
     ai_analysis = None

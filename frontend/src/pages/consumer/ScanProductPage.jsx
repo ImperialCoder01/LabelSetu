@@ -661,20 +661,25 @@ export default function ScanProductPage() {
                       <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
                         AI-Assisted Supplementary Product Research
                       </h3>
-                      {lastResult.external_research.product_match?.status && (
+                      {lastResult.external_research.product_match?.confidence && (
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${
-                          lastResult.external_research.product_match.status === "high_confidence"
+                          lastResult.external_research.product_match.confidence === "high_confidence"
                             ? "bg-emerald-50 text-emerald-700 border-emerald-300"
-                            : lastResult.external_research.product_match.status === "medium_confidence"
+                            : lastResult.external_research.product_match.confidence === "medium_confidence"
                             ? "bg-amber-50 text-amber-700 border-amber-300"
                             : "bg-slate-100 text-slate-600 border-slate-300"
                         }`}>
-                          {lastResult.external_research.product_match.status.replace("_", " ")} ({Math.round((lastResult.external_research.product_match.confidence || 0) * 100)}%)
+                          {String(lastResult.external_research.product_match.confidence).replace("_", " ")} ({Math.round((lastResult.external_research.product_match.confidence_score || lastResult.external_research.product_match.confidence || 0) * 100)}%)
                         </span>
                       )}
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Matched: <strong className="text-slate-800 font-bold">{lastResult.external_research.product_match?.matched_brand} {lastResult.external_research.product_match?.matched_product}</strong>
+                      Matched: <strong className="text-slate-800 font-bold">{lastResult.external_research.product_match?.brand} {lastResult.external_research.product_match?.name || lastResult.external_research.product_match?.matched_product}</strong>
+                      {lastResult.external_research.product_match?.matched_by && (
+                        <span className="text-[10px] text-slate-400 ml-1.5 font-mono">
+                          [via {lastResult.external_research.product_match.matched_by}]
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -697,69 +702,104 @@ export default function ScanProductPage() {
                 )}
               </div>
 
-              {/* Recovered Reference Declarations vs Package Evidence */}
-              {lastResult.external_research.fields && lastResult.external_research.fields.length > 0 && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">
-                      Missing Package Declarations & External Catalog References
-                    </h4>
-                    <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
-                      REQUIRES PACKAGE VERIFICATION
-                    </span>
+              {/* Identity Conflicts Alert (If External Catalog Differs from Package Evidence) */}
+              {lastResult.external_research.identity_conflicts && lastResult.external_research.identity_conflicts.length > 0 && (
+                <div className="p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-1.5">
+                  <div className="flex items-center gap-2 font-black text-amber-950">
+                    <span className="text-base">⚠️</span>
+                    <span>Potential Product Identity Conflict Detected</span>
                   </div>
-
-                  <div className="space-y-2">
-                    {lastResult.external_research.fields.map((field, fIdx) => (
-                      <div key={fIdx} className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs space-y-2">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                          <span className="text-xs font-black text-slate-900">{field.field_name}</span>
-                          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 self-start sm:self-auto">
-                            {field.verification_status.replace(/_/g, " ")}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                          <div className="p-2.5 rounded-lg bg-red-50/60 border border-red-200 text-red-900">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-red-700 block">Package Evidence</span>
-                            <span className="font-semibold block mt-0.5">Not detected in uploaded image</span>
-                          </div>
-
-                          <div className="p-2.5 rounded-lg bg-sky-50/60 border border-sky-200 text-sky-950">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700 block">External Catalog Reference</span>
-                            <span className="font-bold font-mono block mt-0.5">{field.value}</span>
-                          </div>
-                        </div>
-
-                        <p className="text-[11px] text-slate-500 leading-relaxed italic">
-                          ℹ️ {field.explanation}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
+                  {lastResult.external_research.identity_conflicts.map((conf, cIdx) => (
+                    <div key={cIdx} className="text-[11px] leading-relaxed pl-6 space-y-0.5">
+                      <p>
+                        <strong>Package Evidence:</strong> <span className="font-mono">{conf.package_value}</span> vs{" "}
+                        <strong>External Catalog:</strong> <span className="font-mono">{conf.external_value}</span>
+                      </p>
+                      <p className="text-amber-800">{conf.recommendation}</p>
+                    </div>
+                  ))}
                 </div>
               )}
+
+              {/* Recovered Reference Declarations vs Package Evidence */}
+              {(() => {
+                const fields = lastResult.external_research.external_reference_fields || lastResult.external_research.fields || [];
+                if (fields.length === 0) return null;
+
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+                        Missing Package Declarations & External Catalog References
+                      </h4>
+                      <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                        REQUIRES PACKAGE VERIFICATION
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {fields.map((field, fIdx) => (
+                        <div key={fIdx} className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-xs space-y-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                            <span className="text-xs font-black text-slate-900">{field.field_name}</span>
+                            <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 self-start sm:self-auto">
+                              {String(field.verification_status || "REQUIRES_PACKAGE_VERIFICATION").replace(/_/g, " ")}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            <div className="p-2.5 rounded-lg bg-red-50/60 border border-red-200 text-red-900">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-red-700 block">Package Evidence</span>
+                              <span className="font-semibold block mt-0.5">Not detected on uploaded panel</span>
+                            </div>
+
+                            <div className="p-2.5 rounded-lg bg-sky-50/60 border border-sky-200 text-sky-950">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-700 block">External Catalog Reference</span>
+                              <span className="font-bold font-mono block mt-0.5">{field.value}</span>
+                            </div>
+                          </div>
+
+                          <p className="text-[11px] text-slate-500 leading-relaxed italic">
+                            ℹ️ {field.explanation}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Recommended Additional Package Photos */}
-              {lastResult.external_research.recommended_photos && lastResult.external_research.recommended_photos.length > 0 && (
-                <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs space-y-2">
-                  <div className="flex items-center gap-2 text-emerald-900 font-extrabold">
-                    <span className="text-base">📸</span>
-                    <span>Recommended Additional Package Photos for 100% Verification</span>
+              {(() => {
+                const recs = lastResult.external_research.package_verification_required || [];
+                const genericRecs = lastResult.external_research.recommended_photos || [];
+
+                return (
+                  <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs space-y-2">
+                    <div className="flex items-center gap-2 text-emerald-900 font-extrabold">
+                      <span className="text-base">📸</span>
+                      <span>Actionable Next Steps: Upload Specific Package Photos for 100% Verification</span>
+                    </div>
+                    <ul className="space-y-1.5 text-emerald-950 pl-5 list-disc">
+                      {recs.length > 0
+                        ? recs.map((reqItem, rIdx) => (
+                            <li key={rIdx} className="leading-relaxed">
+                              <strong>{reqItem.recommended_panel}:</strong> {reqItem.recommendation}
+                            </li>
+                          ))
+                        : genericRecs.map((recPhoto, pIdx) => (
+                            <li key={pIdx} className="leading-relaxed">
+                              {recPhoto}
+                            </li>
+                          ))}
+                    </ul>
                   </div>
-                  <ul className="space-y-1 text-emerald-950 pl-5 list-disc">
-                    {lastResult.external_research.recommended_photos.map((recPhoto, pIdx) => (
-                      <li key={pIdx} className="leading-relaxed">
-                        {recPhoto}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Mandatory Legal Evidence Disclaimer */}
               <div className="p-3 rounded-xl bg-slate-100 border border-slate-200 text-[11px] text-slate-600 leading-relaxed">
-                <strong>Legal Evidence Notice:</strong> Internet and catalog references are supplementary assistance tools. Under the Legal Metrology (Packaged Commodities) Rules, 2011, statutory compliance is assessed solely on physical packaging declarations. External data does not alter legal scores or convert missing declarations to verified.
+                <strong>Legal Evidence Notice:</strong> {lastResult.external_research.disclaimer || "Internet and catalog references are supplementary assistance tools. Under the Legal Metrology (Packaged Commodities) Rules, 2011, statutory compliance is assessed solely on physical packaging declarations. External data does not alter legal scores or convert missing declarations to verified."}
               </div>
             </div>
           )}
