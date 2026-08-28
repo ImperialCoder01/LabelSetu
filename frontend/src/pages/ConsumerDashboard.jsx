@@ -605,11 +605,77 @@ export default function ConsumerDashboard() {
     setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
   }
 
+async function optimizeImageForUpload(file, maxDimension = 1600, quality = 0.88) {
+  if (!file || !file.type || !file.type.startsWith("image/")) return file;
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let { width, height } = img;
+        if (width <= maxDimension && height <= maxDimension) {
+          resolve(file);
+          return;
+        }
+        if (width > height) {
+          if (width > maxDimension) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          }
+        } else {
+          if (height > maxDimension) {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+            const cleanName = file.name ? file.name.replace(/\.[^/.]+$/, ".jpg") : "upload.jpg";
+            const optimized = new File([blob], cleanName, {
+              type: "image/jpeg",
+              lastModified: Date.now(),
+            });
+            resolve(optimized);
+          },
+          "image/jpeg",
+          quality
+        );
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+      img.src = objectUrl;
+    } catch (_) {
+      resolve(file);
+    }
+  });
+}
+
   async function handleScan() {
     if (selectedFiles.length === 0 && !capturedBarcode) return;
     setScreen("processing");
     setScanError(null);
     setLastResult(null);
+
+    const totalRawSizeKB = Math.round(
+      selectedFiles.reduce((acc, f) => acc + (f.size || 0), 0) / 1024
+    );
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session || !session.access_token) {
@@ -626,8 +692,14 @@ export default function ConsumerDashboard() {
         // Non-fatal — proceed with scan request
       }
 
+      // Pre-scale high-res smartphone camera photos (e.g. 12MP/48MP) to standard 1600px
+      // to eliminate multi-megabyte mobile upload delays and server memory spikes.
+      const filesToUpload = await Promise.all(
+        selectedFiles.map((file) => optimizeImageForUpload(file))
+      );
+
       const formData = new FormData();
-      selectedFiles.forEach((file) => {
+      filesToUpload.forEach((file) => {
         formData.append("files", file);
       });
       if (capturedBarcode) formData.append("barcode", capturedBarcode);
@@ -649,14 +721,15 @@ export default function ConsumerDashboard() {
       } catch (netErr) {
         clearTimeout(scanTimer);
         console.error("Scan fetch network/CORS error:", netErr);
-        if (netErr && netErr.name === "AbortError") {
-          throw new Error(
-            "Scan request timed out after 60 seconds. Please check your network connection and try again."
-          );
-        }
-        throw new Error(
-          `Unable to reach scanning service (${netErr.message || "Network connection failed"}). Please verify your internet connection and retry.`
+        const isAbort = netErr && netErr.name === "AbortError";
+        const customErr = new Error(
+          isAbort
+            ? "Scan request timed out after 60 seconds. Please check your network connection and try again."
+            : `Unable to reach scanning service (${netErr.message || "Network connection failed"}). Please verify your internet connection and retry.`
         );
+        customErr.originalName = netErr?.name || "TypeError";
+        customErr.originalMessage = netErr?.message || "Failed to fetch";
+        throw customErr;
       }
       clearTimeout(scanTimer);
 
@@ -685,9 +758,11 @@ export default function ConsumerDashboard() {
       console.error("[LabelSetu Scan Diagnostic]", {
         apiHost: API_BASE,
         endpoint: `${API_BASE}/api/scans/scan`,
-        errorName: err.name,
-        errorMessage: err.message,
+        errorName: err.originalName || err.name,
+        errorMessage: err.originalMessage || err.message,
         online: typeof navigator !== "undefined" ? navigator.onLine : true,
+        imageCount: selectedFiles.length,
+        totalSizeKB: totalRawSizeKB,
       });
       setScanError({
         message: err.message,
@@ -695,7 +770,9 @@ export default function ConsumerDashboard() {
           apiHost: API_BASE,
           endpoint: "POST /api/scans/scan",
           online: typeof navigator !== "undefined" ? navigator.onLine : true,
-          errorName: err.name,
+          errorName: err.originalName || err.name,
+          imagesCount: selectedFiles.length,
+          totalSizeKB: totalRawSizeKB,
         },
       });
       setScreen("upload");
@@ -782,6 +859,7 @@ export default function ConsumerDashboard() {
                         <div><span className="text-slate-400">Request:</span> {scanError.diagnostic.endpoint}</div>
                         <div><span className="text-slate-400">Online:</span> {scanError.diagnostic.online ? "Yes" : "No"}</div>
                         {scanError.diagnostic.errorName && <div><span className="text-slate-400">Type:</span> {scanError.diagnostic.errorName}</div>}
+                        {scanError.diagnostic.imagesCount !== undefined && <div><span className="text-slate-400">Images:</span> {scanError.diagnostic.imagesCount} ({scanError.diagnostic.totalSizeKB} KB)</div>}
                       </div>
                     </details>
                   )}
