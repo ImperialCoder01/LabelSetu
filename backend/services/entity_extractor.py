@@ -461,6 +461,82 @@ def _extract_country_of_origin(text: str) -> Optional[str]:
     )
 
 
+FSSAI_PREFIXES = [
+    r"(?:fssai|lic)\s*(?:no\.?|num|licence|license)?\s*[:\.-]?",
+]
+
+FSSAI_BOUNDARIES = [
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"fssai|lic", b, re.IGNORECASE)
+]
+
+
+def _match_fssai_in_str(s: str) -> Optional[str]:
+    """Helper to check if a string contains a valid 14-digit FSSAI license number."""
+    if not s or not s.strip():
+        return None
+    match = re.search(r"\b(\d{14})\b", s)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _extract_fssai_lic(text: str) -> Optional[str]:
+    """
+    Extract 14-digit FSSAI license number using shared extraction infrastructure.
+    Supports same-line (e.g. 'FSSAI Lic. No: 12345678901234') and multi-line declarations (e.g. 'FSSAI Lic. No:\n12345678901234').
+    """
+    res = _extract_labeled_block(
+        text,
+        role_prefixes=FSSAI_PREFIXES,
+        role_boundaries=FSSAI_BOUNDARIES,
+        max_continuation_lines=1,
+        line_validator=_match_fssai_in_str,
+    )
+    if res:
+        return res
+
+    match = re.search(r"\b(\d{14})\b", text)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+MRP_PREFIXES = [
+    r"(?:m\.?r\.?p\.?|max\s*retail\s*price|maximum\s*retail\s*price)\s*[:\.-]?",
+]
+
+MRP_BOUNDARIES = [
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"\bmrp\b|price", b, re.IGNORECASE)
+]
+
+
+def _match_mrp_in_str(s: str) -> Optional[str]:
+    """Helper to check if a string contains a valid price digits value."""
+    if not s or not s.strip():
+        return None
+    clean_s = re.sub(r"^(?:rs\.?|₹|inr)\s*", "", s.strip(), flags=re.IGNORECASE)
+    match = re.search(r"\b([\d\.,]+)\b", clean_s)
+    if match:
+        val = match.group(1).strip(" ,.-")
+        if re.match(r"^\d+(?:\.\d{1,2})?$", val):
+            return val
+    return None
+
+
+def _extract_mrp(text: str) -> Optional[str]:
+    """
+    Extract Maximum Retail Price (MRP) using shared extraction infrastructure.
+    Supports same-line (e.g. 'MRP: ₹200') and multi-line declarations (e.g. 'MRP:\n₹200').
+    """
+    return _extract_labeled_block(
+        text,
+        role_prefixes=MRP_PREFIXES,
+        role_boundaries=MRP_BOUNDARIES,
+        max_continuation_lines=1,
+        line_validator=_match_mrp_in_str,
+    )
+
+
 def extract_entities_from_text(text: str) -> Dict[str, Any]:
     """
     Apply trained entity recognition patterns to OCR extracted text.
@@ -491,11 +567,7 @@ def extract_entities_from_text(text: str) -> Dict[str, Any]:
 
     # Fallback default regex patterns if model file is unreadable
     default_patterns = {
-        "mrp": [r"(?:mrp|max\s*retail\s*price|price)\s*[:\.-]?\s*(?:rs\.?|₹)?\s*([\d\.,]+)"],
         "unit_sale_price": [r"(?:unit\s*sale\s*price|unit\s*price)\s*[:\.-]?\s*([^\n,]+)"],
-        "net_quantity": [r"(?:net\s*wt|net\s*weight|net\s*qty|net\s*quantity|net\s*vol)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|gm))"],
-        "fssai_lic": [r"(?:fssai|lic)\s*(?:no\.?|num)?\s*[:\.-]?\s*(\d{14})"],
-        "consumer_care": [r"(?:customer\s*care|consumer\s*care|care\s*line|toll\s*free)\s*[:\.-]?\s*([^\n,]+)"],
     }
 
     active_patterns = patterns if patterns else default_patterns
@@ -519,9 +591,15 @@ def extract_entities_from_text(text: str) -> Dict[str, Any]:
     # 6. Custom Extractor for Country of Origin
     extracted["country_of_origin"] = _extract_country_of_origin(text)
 
-    # 7. Extract remaining entities
+    # 7. Custom Extractor for FSSAI License Number
+    extracted["fssai_lic"] = _extract_fssai_lic(text)
+
+    # 8. Custom Extractor for MRP
+    extracted["mrp"] = _extract_mrp(text)
+
+    # 9. Extract remaining entities
     for entity_key, regex_list in active_patterns.items():
-        if entity_key in ("net_quantity", "mfg_date", "expiry_date", "manufacturer_name_address", "consumer_care", "country_of_origin"):
+        if entity_key in ("net_quantity", "mfg_date", "expiry_date", "manufacturer_name_address", "consumer_care", "country_of_origin", "fssai_lic", "mrp"):
             continue
 
         for pattern in regex_list:

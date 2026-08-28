@@ -304,6 +304,7 @@ ABC Foods Pvt. Ltd.
 Plot 14, Industrial Area
 New Delhi - 110020
 Customer Care:
+Consumer Care Executive
 1800-123-4567
 care@abcfoods.com
 Country of Origin:
@@ -315,11 +316,17 @@ Best Before:
 Net Qty:
 2 N x 100 g = 200 g
 MRP:
-₹200"""
+₹200
+FSSAI Lic. No:
+12345678901234
+Batch No:
+ABC12345
+Ingredients:
+Wheat Flour, Sugar, Salt"""
         entities = extract_entities_from_text(full_label)
         detailed = extract_entities_with_evidence(full_label)
 
-        # 1. Manufacturer isolation
+        # 1. Manufacturer isolation (No absorption of Customer Care or FSSAI)
         self.assertEqual(entities["manufacturer_name_address"], "ABC Foods Pvt. Ltd., Plot 14, Industrial Area, New Delhi - 110020")
         self.assertNotIn("Customer Care", entities["manufacturer_name_address"])
         self.assertNotIn("1800-123-4567", entities["manufacturer_name_address"])
@@ -342,11 +349,30 @@ MRP:
         self.assertEqual(entities["expiry_date"], "AUG 2027")
         self.assertEqual(detailed["expiry_date"]["source"], "INFERENCE")
 
-        # 6. Net quantity explicit total preference
+        # 6. Net quantity explicit total preference (200 g over 2 N)
         self.assertEqual(entities["net_quantity"], "200 g")
 
         # 7. MRP isolation
         self.assertEqual(entities["mrp"], "200")
+
+        # 8. FSSAI License isolation
+        self.assertEqual(entities["fssai_lic"], "12345678901234")
+
+    def test_adversarial_ocr_formatting_variations(self):
+        """Test FSSAI and MRP formatting variations and line-separated declarations."""
+        # FSSAI multi-line & missing colon
+        t_f1 = "FSSAI Lic. No:\n12345678901234"
+        self.assertEqual(extract_entities_from_text(t_f1)["fssai_lic"], "12345678901234")
+
+        t_f2 = "FSSAI Lic No - 12345678901234"
+        self.assertEqual(extract_entities_from_text(t_f2)["fssai_lic"], "12345678901234")
+
+        # MRP variations
+        t_m1 = "M.R.P.:\n₹200"
+        self.assertEqual(extract_entities_from_text(t_m1)["mrp"], "200")
+
+        t_m2 = "M.R.P. Incl. of all taxes: ₹ 520.00"
+        self.assertEqual(extract_entities_from_text(t_m2)["mrp"], "520.00")
 
 
 if __name__ == "__main__":
