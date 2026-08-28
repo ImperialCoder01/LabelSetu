@@ -375,5 +375,108 @@ Wheat Flour, Sugar, Salt"""
         self.assertEqual(extract_entities_from_text(t_m2)["mrp"], "520.00")
 
 
+class TestCrossEntityAdversarialMatrix(unittest.TestCase):
+    """
+    Comprehensive Phase 10 Cross-Entity Adversarial Test Matrix.
+    Proves that extraction of any single entity cannot contaminate or consume neighboring entities,
+    and verifies strict non-inference and evidence provenance.
+    """
+
+    def test_reordered_fields_isolation(self):
+        """Test extraction accuracy when packaging fields appear in reordered/scrambled sequence."""
+        reordered_label = """Customer Care:
+1800-123-4567
+care@abcfoods.com
+FSSAI Lic. No:
+12345678901234
+MRP:
+₹ 250.00
+Net Qty:
+500 g
+Mfg Date:
+10/05/2026
+Country of Origin:
+Republic of India
+Manufactured by:
+ABC Foods Pvt. Ltd.
+Plot 45, Industrial Estate, Gurugram, Haryana - 122001"""
+        entities = extract_entities_from_text(reordered_label)
+
+        self.assertEqual(entities["consumer_care"], "1800-123-4567, care@abcfoods.com")
+        self.assertEqual(entities["fssai_lic"], "12345678901234")
+        self.assertEqual(entities["mrp"], "250.00")
+        self.assertEqual(entities["net_quantity"], "500 g")
+        self.assertEqual(entities["mfg_date"], "10/05/2026")
+        self.assertEqual(entities["country_of_origin"], "Republic of India")
+        self.assertEqual(entities["manufacturer_name_address"], "ABC Foods Pvt. Ltd., Plot 45, Industrial Estate, Gurugram, Haryana - 122001")
+
+    def test_pairwise_boundary_non_contamination(self):
+        """Test specific pairwise adjacent declarations to ensure zero cross-entity leakage."""
+        # 1. Manufacturer containing 'India' vs Country of Origin
+        mfg_origin = """Manufactured by:
+ABC Foods Pvt. Ltd., Plot 14, Industrial Area, New Delhi - 110020, India
+Country of Origin:
+Republic of India"""
+        ent1 = extract_entities_from_text(mfg_origin)
+        self.assertIn("ABC Foods", ent1["manufacturer_name_address"])
+        self.assertEqual(ent1["country_of_origin"], "Republic of India")
+
+        # 2. Manufacturer ↔ FSSAI isolation
+        mfg_fssai = """Manufactured by:
+ABC Foods Pvt. Ltd.
+FSSAI Lic. No: 12345678901234"""
+        ent2 = extract_entities_from_text(mfg_fssai)
+        self.assertNotIn("12345678901234", ent2["manufacturer_name_address"])
+        self.assertEqual(ent2["fssai_lic"], "12345678901234")
+
+        # 3. FSSAI ↔ Customer Care Toll-Free Phone isolation
+        fssai_phone = """FSSAI Lic. No: 12345678901234
+Customer Care: 1800-123-4567"""
+        ent3 = extract_entities_from_text(fssai_phone)
+        self.assertEqual(ent3["fssai_lic"], "12345678901234")
+        self.assertEqual(ent3["consumer_care"], "1800-123-4567")
+
+        # 4. MRP ↔ USP isolation
+        mrp_usp = """MRP: ₹ 200.00
+USP: ₹ 1.00 per g"""
+        ent4 = extract_entities_from_text(mrp_usp)
+        self.assertEqual(ent4["mrp"], "200.00")
+        self.assertNotEqual(ent4["mrp"], "1.00")
+
+        # 5. Mfg Date ↔ Batch No isolation
+        mfg_batch = """Mfg Date: 15/08/2026
+Batch No: 15082026"""
+        ent5 = extract_entities_from_text(mfg_batch)
+        self.assertEqual(ent5["mfg_date"], "15/08/2026")
+
+    def test_non_inference_and_provenance_discipline(self):
+        """Test strict non-inference rules and verify evidence provenance flags."""
+        # Ambiguous multi-pack (3 Packs of 50 ml) must NOT become 150 ml
+        ambiguous_text = "3 Packs of 50 ml"
+        ent_amb = extract_entities_from_text(ambiguous_text)
+        self.assertNotEqual(ent_amb["net_quantity"], "150 ml")
+
+        # Standalone count unit (2 N) must NOT become 2 g
+        count_text = "Net Qty: 2 N"
+        ent_count = extract_entities_from_text(count_text)
+        self.assertEqual(ent_count["net_quantity"], "2 N")
+
+        # Printed Mfg Date -> IMAGE provenance
+        printed_label = "Mfg Date: 15/08/2026\nBest Before: 12 Months"
+        detailed = extract_entities_with_evidence(printed_label)
+        self.assertEqual(detailed["mfg_date"]["source"], "IMAGE")
+        self.assertEqual(detailed["mfg_date"]["value"], "15/08/2026")
+        self.assertEqual(detailed["expiry_date"]["source"], "INFERENCE")
+        self.assertEqual(detailed["expiry_date"]["value"], "AUG 2027")
+
+    def test_false_positive_resistance(self):
+        """Test that un-labeled numeric strings do not get misinterpreted as legal entities."""
+        unlabeled_text = "Ref Code: 998877 Item # 445566"
+        entities = extract_entities_from_text(unlabeled_text)
+        self.assertIsNone(entities["mfg_date"])
+        self.assertIsNone(entities["net_quantity"])
+        self.assertIsNone(entities["mrp"])
+
+
 if __name__ == "__main__":
     unittest.main()
