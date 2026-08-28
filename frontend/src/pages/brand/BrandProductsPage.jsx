@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../context/AuthContext";
-import { supabase } from "../lib/supabase";
-import AppDrawer from "../components/AppDrawer";
+import { useAuth } from "../../context/AuthContext";
+import { supabase } from "../../lib/supabase";
+import AppDrawer from "../../components/AppDrawer";
 
 const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu.onrender.com").replace(/\/$/, "");
 

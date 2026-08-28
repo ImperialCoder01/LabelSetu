@@ -1,82 +1,84 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 font-sans antialiased selection:bg-accent-100 selection:text-accent-900;
+    @apply bg-slate-50 text-slate-800 font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
 
-@layer components {
-  /* UI/UX Pro Max Card Base */
-  .card-slate {
-    @apply bg-white rounded-xl border border-slate-200/90 shadow-sm p-6 transition-all duration-200;
-  }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
-  /* Backward-compatible alias — secondary pages (BrandDashboard, RegulatorDashboard, Admin) still use .card */
-  .card {
-    @apply bg-white rounded-xl border border-slate-200/90 shadow-sm p-6 transition-all duration-200;
-  }
+@keyframes slideLeft {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
 
-  .card-slate-hover {
-    @apply hover:border-slate-300 hover:shadow-md;
-  }
+.animate-fade-in {
+  animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 
-  /* Button System */
-  .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 px-5 rounded-lg shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm;
-  }
+.animate-slide-left {
+  animation: slideLeft 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 
-  .btn-accent {
-    @apply inline-flex items-center justify-center gap-2 bg-accent-600 hover:bg-accent-700 text-white font-semibold py-2.5 px-5 rounded-lg shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed text-sm;
-  }
+/* Custom Clean Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
 
-  .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 font-medium py-2.5 px-5 border border-slate-300 rounded-lg shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 text-sm;
-  }
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
 
-  .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 hover:bg-slate-100 text-slate-600 font-medium py-2 px-3 rounded-lg transition-colors text-sm;
-  }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 4px;
+}
 
-  .input-field {
-    @apply w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-lg shadow-sm text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-800 focus:border-slate-800 transition-all duration-150;
-  }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.7);
+}
 
-  /* Standardized Status Badges */
-  .badge-present {
-    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-accent-50 text-accent-800 border border-accent-200;
-  }
+/* Design System Utilities */
+.card-slate {
+  @apply bg-white rounded-2xl border border-slate-200/80 shadow-sm transition-all duration-200;
+}
 
-  .badge-missing {
-    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-red-50 text-red-800 border border-red-200;
-  }
+.card-slate-hover {
+  @apply bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-md hover:border-slate-300 transition-all duration-200;
+}
 
-  .badge-not-visible {
-    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-sky-50 text-sky-800 border border-sky-200;
-  }
+.btn-accent {
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs shadow-sm hover:shadow transition-all focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2;
+}
 
-  .badge-unreadable {
-    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200;
-  }
+.btn-secondary {
+  @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white hover:bg-slate-50 active:bg-slate-100 text-slate-700 font-bold text-xs border border-slate-200 shadow-sm hover:border-slate-300 transition-all focus:outline-none focus:ring-2 focus:ring-slate-400;
+}
 
-  .badge-not-detected {
-    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200;
-  }
+.input-field {
+  @apply w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-900 text-xs placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all;
+}
 
-  .badge-conflicting {
-    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-purple-50 text-purple-800 border border-purple-200;
-  }
+.badge-compliant {
+  @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-extrabold;
+}
 
-  .badge-mismatch {
-    @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold bg-orange-50 text-orange-800 border border-orange-200;
-  }
+.badge-violation {
+  @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-800 border border-red-200 text-xs font-extrabold;
+}
 
-  /* Monospace OCR block */
-  .ocr-code-block {
-    @apply font-mono text-xs text-slate-800 bg-slate-100 p-3 rounded-lg border border-slate-200 overflow-x-auto leading-relaxed;
-  }
+.badge-attention {
+  @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-extrabold;
+}
+
+.badge-unreadable {
+  @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold;
 }

@@ -1,0 +1,620 @@
+import { useState, useRef } from "react";
+import { Link } from "react-router-dom";
+import { supabase } from "../../lib/supabase";
+import BarcodeScanner from "../../components/BarcodeScanner";
+import AppDrawer from "../../components/AppDrawer";
+
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu.onrender.com").replace(/\/$/, "");
+
+// Client-side image pre-scaling to prevent memory spikes & socket aborts
+async function optimizeImageForUpload(file, maxDimension = 1600, quality = 0.88) {
+  if (!file || !file.type || !file.type.startsWith("image/")) return file;
+  return new Promise((resolve) => {
+    try {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let { width, height } = img;
+        if (width <= maxDimension && height <= maxDimension) {
+          resolve(file);
+          return;
+        }
+        if (width > height) {
+          if (width > maxDimension) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          }
+        } else {
+          if (height > maxDimension) {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+            const cleanName = file.name ? file.name.replace(/\.[^/.]+$/, ".jpg") : "upload.jpg";
+            const optimized = new File([blob], cleanName, {
+              type: "image/jpeg",
+              lastModified: Date.now(),
+            });
+            resolve(optimized);
+          },
+          "image/jpeg",
+          quality
+        );
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+      img.src = objectUrl;
+    } catch (_) {
+      resolve(file);
+    }
+  });
+}
+
+export default function ScanProductPage() {
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [dragOver, setDragOver] = useState(false);
+  const [capturedBarcode, setCapturedBarcode] = useState(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+
+  const [screen, setScreen] = useState("upload"); // upload | processing | results
+  const [lastResult, setLastResult] = useState(null);
+  const [scanError, setScanError] = useState(null);
+
+  // Drawers
+  const [activeRuleDrawer, setActiveRuleDrawer] = useState(null);
+  const [ocrDrawerOpen, setOcrDrawerOpen] = useState(false);
+  const [reportSuccess, setReportSuccess] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reporting, setReporting] = useState(false);
+
+  const fileRef = useRef(null);
+  const cameraRef = useRef(null);
+
+  const handleInputChange = (e) => {
+    if (!e.target.files?.length) return;
+    const newFiles = Array.from(e.target.files).filter((f) => f.type.startsWith("image/"));
+    setSelectedFiles((prev) => {
+      const combined = [...prev, ...newFiles];
+      return combined.slice(0, 5);
+    });
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (!e.dataTransfer.files?.length) return;
+    const newFiles = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    setSelectedFiles((prev) => [...prev, ...newFiles].slice(0, 5));
+  };
+
+  const handleRemoveFile = (idx) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  async function handleScan() {
+    if (selectedFiles.length === 0 && !capturedBarcode) return;
+    setScreen("processing");
+    setScanError(null);
+    setLastResult(null);
+
+    const totalRawKB = Math.round(selectedFiles.reduce((a, b) => a + (b.size || 0), 0) / 1024);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session || !session.access_token) {
+        throw new Error("Authentication session expired. Please sign in again.");
+      }
+
+      // Pre-flight non-blocking ping
+      try {
+        const pingCtrl = new AbortController();
+        const t = setTimeout(() => pingCtrl.abort(), 4000);
+        await fetch(`${API_BASE}/health`, { signal: pingCtrl.signal });
+        clearTimeout(t);
+      } catch (_) {}
+
+      // Pre-scale images before building FormData
+      const filesToUpload = await Promise.all(
+        selectedFiles.map((file) => optimizeImageForUpload(file))
+      );
+
+      const formData = new FormData();
+      filesToUpload.forEach((file) => {
+        formData.append("files", file);
+      });
+      if (capturedBarcode) formData.append("barcode", capturedBarcode);
+
+      const scanCtrl = new AbortController();
+      const scanTimer = setTimeout(() => scanCtrl.abort(), 60000);
+
+      const res = await fetch(`${API_BASE}/api/scans/scan`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: formData,
+        signal: scanCtrl.signal,
+      });
+      clearTimeout(scanTimer);
+
+      if (!res.ok) {
+        let errMessage = `Scanning failed (HTTP ${res.status})`;
+        try {
+          const errData = await res.json();
+          if (errData?.detail) errMessage = errData.detail;
+        } catch (_) {}
+        throw new Error(errMessage);
+      }
+
+      const resultData = await res.json();
+      setLastResult(resultData);
+      setScreen("results");
+    } catch (err) {
+      console.error("Scan error:", err);
+      setScanError({
+        message: err.name === "AbortError"
+          ? "Scan timed out (60s). Please try again with a clearer single image."
+          : err.message || "Failed to complete packaging scan.",
+        apiHost: API_BASE,
+        online: navigator.onLine ? "Yes" : "No",
+        imagesCount: selectedFiles.length,
+        totalSizeKB: totalRawKB,
+      });
+      setScreen("upload");
+    }
+  }
+
+  async function handleReportGrievance() {
+    if (!lastResult?.scan_id) return;
+    setReporting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      await fetch(`${API_BASE}/api/reports/report`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          scan_id: lastResult.scan_id,
+          reason: reportReason || "Legal Metrology declaration non-compliance violation.",
+        }),
+      });
+      setReportSuccess(true);
+    } catch (err) {
+      console.error("Report failed:", err);
+    } finally {
+      setReporting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* PROCESSING SCREEN */}
+      {screen === "processing" && (
+        <div className="card-slate p-8 sm:p-12 text-center max-w-xl mx-auto space-y-6 animate-fade-in">
+          <div className="relative w-20 h-20 mx-auto">
+            <div className="absolute inset-0 rounded-full border-4 border-slate-200" />
+            <div className="absolute inset-0 rounded-full border-4 border-emerald-600 border-t-transparent animate-spin" />
+            <div className="absolute inset-0 flex items-center justify-center text-2xl">
+              🔍
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-xl font-black text-slate-900 tracking-tight">
+              Auditing Packaging Declarations...
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">This usually takes a few seconds.</p>
+          </div>
+
+          <div className="space-y-2 text-left bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+            <div className="flex items-center gap-2 text-slate-700 font-bold">
+              <span className="text-emerald-600">✓</span> Validating image structure & content
+            </div>
+            <div className="flex items-center gap-2 text-slate-700 font-bold">
+              <span className="text-emerald-600">✓</span> Running optical character recognition (OCR)
+            </div>
+            <div className="flex items-center gap-2 text-slate-700 font-bold">
+              <span className="text-emerald-600">✓</span> Classifying panels & aggregating evidence
+            </div>
+            <div className="flex items-center gap-2 text-slate-700 font-bold">
+              <span className="text-emerald-600">✓</span> Checking Legal Metrology 2011 compliance
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UPLOAD SCREEN */}
+      {screen === "upload" && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black text-slate-900 tracking-tight">Scan Product Packaging</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Upload 1 to 5 photos of the package panels (Front, Back, Side, MRP Flap)
+              </p>
+            </div>
+            {selectedFiles.length > 0 && (
+              <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                {selectedFiles.length} / 5 Selected
+              </span>
+            )}
+          </div>
+
+          {/* Error Alert if any */}
+          {scanError && (
+            <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-900 text-xs space-y-2">
+              <div className="flex items-center gap-2 font-bold">
+                <span>⚠️</span> {scanError.message}
+              </div>
+              <details className="text-[11px] opacity-80 cursor-pointer pt-1">
+                <summary className="font-bold">Technical Diagnostics</summary>
+                <div className="mt-1 font-mono space-y-0.5 bg-white/60 p-2 rounded-lg">
+                  <p>API Base: {scanError.apiHost}</p>
+                  <p>Online: {scanError.online}</p>
+                  <p>Photos: {scanError.imagesCount} ({scanError.totalSizeKB} KB raw)</p>
+                </div>
+              </details>
+            </div>
+          )}
+
+          {/* Dropzone & Selected Previews */}
+          {selectedFiles.length > 0 ? (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                {selectedFiles.map((file, idx) => (
+                  <div key={idx} className="relative rounded-xl border border-slate-200 bg-slate-50 p-2 text-center overflow-hidden">
+                    <div className="w-full h-28 bg-slate-200 rounded-lg overflow-hidden flex items-center justify-center mb-1.5">
+                      <img
+                        src={URL.createObjectURL(file)}
+                        alt={`Preview ${idx + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <p className="text-[11px] font-bold text-slate-800 truncate px-1">{file.name}</p>
+                    <p className="text-[10px] text-slate-400 font-mono">{(file.size / 1024).toFixed(0)} KB</p>
+                    <span className="absolute top-3 left-3 bg-slate-900/80 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                      #{idx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFile(idx)}
+                      className="absolute top-3 right-3 bg-red-600 hover:bg-red-700 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow-md"
+                      title="Remove photo"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {selectedFiles.length < 5 && (
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="w-full py-3 border-2 border-dashed border-slate-300 hover:border-slate-400 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <span>+</span> Add Another Packaging Photo (e.g. Back or Side Panel)
+                </button>
+              )}
+            </div>
+          ) : (
+            <div
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-2xl p-10 sm:p-14 text-center cursor-pointer transition-all ${
+                dragOver ? "border-emerald-500 bg-emerald-50/50" : "border-slate-300 hover:border-slate-400 hover:bg-slate-50/50"
+              }`}
+            >
+              <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center text-2xl mb-3 shadow-xs">
+                📷
+              </div>
+              <h3 className="text-base font-extrabold text-slate-900">Click or Drag & Drop Packaging Photos</h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                Upload clear photos showing the brand name, MRP, Net Weight, and Manufacturer address.
+              </p>
+            </div>
+          )}
+
+          {/* Hidden File Inputs */}
+          <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleInputChange} className="hidden" id="scan-file-input" />
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleInputChange} className="hidden" id="scan-camera-input" />
+
+          {/* Upload Buttons & Barcode Trigger */}
+          <div className="flex flex-wrap gap-3">
+            <label htmlFor="scan-camera-input" className="btn-secondary flex-1 cursor-pointer">
+              <span>📸</span> Take Photo
+            </label>
+            <label htmlFor="scan-file-input" className="btn-secondary flex-1 cursor-pointer">
+              <span>📁</span> Browse Files
+            </label>
+            <button
+              type="button"
+              onClick={() => setScannerOpen(!scannerOpen)}
+              className={`btn-secondary flex-1 ${capturedBarcode ? "border-emerald-500 text-emerald-700 font-black" : ""}`}
+            >
+              <span>🔲</span> {capturedBarcode ? `Barcode: ${capturedBarcode}` : "Scan Barcode"}
+            </button>
+          </div>
+
+          {/* Inline Barcode Scanner */}
+          {scannerOpen && (
+            <div className="card-slate p-4 border-slate-300">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-bold text-slate-800">Position barcode in front of camera:</span>
+                <button onClick={() => setScannerOpen(false)} className="text-xs font-bold text-slate-500 hover:text-slate-800">
+                  ✕ Close Scanner
+                </button>
+              </div>
+              <BarcodeScanner
+                onScanSuccess={(code) => {
+                  setCapturedBarcode(code);
+                  setScannerOpen(false);
+                }}
+              />
+            </div>
+          )}
+
+          {/* Useful Packaging Panels Tips */}
+          <div className="card-slate p-4 bg-slate-50/70">
+            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
+              💡 Recommended Packaging Panels for 100% Verification Coverage
+            </h4>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="p-2 bg-white rounded-lg border border-slate-200">
+                <p className="font-bold text-slate-800">1. Front Panel</p>
+                <p className="text-[11px] text-slate-400">Product Name & Brand</p>
+              </div>
+              <div className="p-2 bg-white rounded-lg border border-slate-200">
+                <p className="font-bold text-slate-800">2. Back Panel</p>
+                <p className="text-[11px] text-slate-400">MRP, Net Qty, Mfg Date</p>
+              </div>
+              <div className="p-2 bg-white rounded-lg border border-slate-200">
+                <p className="font-bold text-slate-800">3. Side Panel</p>
+                <p className="text-[11px] text-slate-400">Manufacturer Address</p>
+              </div>
+              <div className="p-2 bg-white rounded-lg border border-slate-200">
+                <p className="font-bold text-slate-800">4. Flap / Base</p>
+                <p className="text-[11px] text-slate-400">Consumer Care & USP</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Primary Action Button */}
+          <button
+            type="button"
+            onClick={handleScan}
+            disabled={selectedFiles.length === 0 && !capturedBarcode}
+            className="btn-accent w-full py-4 text-sm font-black tracking-wide disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
+          >
+            {selectedFiles.length > 1
+              ? `Audit ${selectedFiles.length} Packaging Photos`
+              : "Audit Packaging Label"}
+          </button>
+        </div>
+      )}
+
+      {/* RESULTS SCREEN */}
+      {screen === "results" && lastResult && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Header Action Bar */}
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-black text-slate-900 tracking-tight">Legal Metrology Audit Report</h2>
+            <button
+              onClick={() => {
+                setSelectedFiles([]);
+                setLastResult(null);
+                setScreen("upload");
+              }}
+              className="btn-secondary text-xs"
+            >
+              ← Scan Another Packaging
+            </button>
+          </div>
+
+          {/* Top Compliance Meter Card */}
+          {(() => {
+            const comp = lastResult.compliance || {};
+            const score = comp.overall_score !== undefined && comp.overall_score !== null ? comp.overall_score : 100;
+            const completeness = comp.verification_completeness || "ASSESSED";
+            const coverage = comp.evidence_coverage || "8/8 declarations assessable";
+            const isCompliant = score >= 80;
+
+            return (
+              <div className="card-slate p-6 sm:p-8 bg-gradient-to-br from-slate-900 to-slate-850 text-white shadow-xl">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-md border ${
+                        isCompliant
+                          ? "bg-emerald-950 text-emerald-400 border-emerald-800"
+                          : "bg-red-950 text-red-400 border-red-800"
+                      }`}>
+                        {completeness}
+                      </span>
+                      <span className="text-xs text-slate-400 font-mono">
+                        {coverage}
+                      </span>
+                    </div>
+
+                    <h3 className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+                      {lastResult.classification?.product_name || "Packaged Commodity"}
+                    </h3>
+                    <p className="text-xs text-slate-300">
+                      Evaluated against the Legal Metrology (Packaged Commodities) Rules, 2011.
+                    </p>
+                  </div>
+
+                  {/* Score Dial */}
+                  <div className="flex items-center gap-4 bg-slate-800/80 p-4 rounded-2xl border border-slate-700 flex-shrink-0">
+                    <div className="text-center">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Compliance Index</span>
+                      <p className={`text-4xl font-black ${isCompliant ? "text-emerald-400" : "text-red-400"}`}>
+                        {score}<span className="text-xl text-slate-400">/100</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* 8 Mandatory Declarations Checklist */}
+          <div className="card-slate p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
+                  8 Mandatory Legal Metrology Declarations
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Click any rule to inspect statutory criteria and evidence</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOcrDrawerOpen(true)}
+                className="text-xs font-bold text-slate-600 hover:text-slate-900 border border-slate-200 px-3 py-1.5 rounded-xl hover:bg-slate-50"
+              >
+                📄 Raw OCR Inspector
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(lastResult.compliance?.fields || []).map((field, idx) => {
+                const isPass = field.status === "pass";
+                const isUnreadable = field.evidence_status === "UNREADABLE";
+
+                return (
+                  <div
+                    key={idx}
+                    onClick={() => setActiveRuleDrawer(field)}
+                    className="p-4 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50/70 transition-all cursor-pointer flex items-start justify-between gap-3"
+                  >
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          field.severity === "Critical" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"
+                        }`}>
+                          {field.severity || "Rule"}
+                        </span>
+                        <h4 className="text-xs font-bold text-slate-900 truncate">{field.field_name}</h4>
+                      </div>
+
+                      <p className="text-xs text-slate-600 truncate font-mono">
+                        {field.extracted_value ? `"${field.extracted_value}"` : isUnreadable ? "Text unreadable on image" : "Not declared"}
+                      </p>
+                    </div>
+
+                    <span className={`text-[10px] font-extrabold uppercase px-2 py-1 rounded-md flex-shrink-0 ${
+                      isPass ? "badge-compliant" : isUnreadable ? "badge-unreadable" : "badge-violation"
+                    }`}>
+                      {isPass ? "Pass" : isUnreadable ? "Unreadable" : "Missing"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Grievance Reporting Card */}
+          <div className="card-slate p-6 border-slate-200">
+            <h3 className="text-sm font-extrabold text-slate-900">Report Non-Compliance Grievance</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Found a violation? Submit this audit record to the Legal Metrology officer review queue.
+            </p>
+
+            {reportSuccess ? (
+              <div className="mt-3 p-3 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-bold">
+                ✓ Grievance submitted successfully for regulatory review.
+              </div>
+            ) : (
+              <div className="mt-3 flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Optional grievance comment (e.g. Overcharging, Net quantity missing)..."
+                  value={reportReason}
+                  onChange={(e) => setReportReason(e.target.value)}
+                  className="input-field text-xs flex-1"
+                />
+                <button
+                  type="button"
+                  onClick={handleReportGrievance}
+                  disabled={reporting}
+                  className="btn-accent whitespace-nowrap"
+                >
+                  {reporting ? "Submitting..." : "Report Violation"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* OCR Raw Text Drawer */}
+      <AppDrawer
+        isOpen={ocrDrawerOpen}
+        onClose={() => setOcrDrawerOpen(false)}
+        title="OCR Text Inspector"
+        subtitle="Complete extracted text tokens from package"
+      >
+        <pre className="p-4 bg-slate-900 text-slate-200 text-xs font-mono rounded-xl max-h-[70vh] overflow-y-auto whitespace-pre-wrap">
+          {lastResult?.ocr?.full_text || "No OCR text extracted."}
+        </pre>
+      </AppDrawer>
+
+      {/* Rule Detail Explanation Drawer */}
+      <AppDrawer
+        isOpen={Boolean(activeRuleDrawer)}
+        onClose={() => setActiveRuleDrawer(null)}
+        title={activeRuleDrawer?.field_name || "Rule Details"}
+        subtitle={`Severity: ${activeRuleDrawer?.severity || "Standard"}`}
+      >
+        {activeRuleDrawer && (
+          <div className="space-y-4">
+            <div className="card-slate p-4 flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-600 uppercase">Verification Status</span>
+              <span className={`text-xs font-extrabold px-3 py-1 rounded-lg ${
+                activeRuleDrawer.status === "pass" ? "badge-compliant" : "badge-violation"
+              }`}>
+                {activeRuleDrawer.status === "pass" ? "VERIFIED PRESENT" : "POTENTIAL VIOLATION"}
+              </span>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">Extracted Value / Evidence</h4>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs font-mono">
+                {activeRuleDrawer.extracted_value || "No matching value found in extracted OCR text."}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-1">Statutory Requirement</h4>
+              <p className="text-xs text-slate-600 bg-white p-3 rounded-xl border border-slate-200 leading-relaxed">
+                Under the Legal Metrology (Packaged Commodities) Rules, 2011, this declaration must appear prominently on the Principal Display Panel with minimum specified font height tolerances.
+              </p>
+            </div>
+          </div>
+        )}
+      </AppDrawer>
+    </div>
+  );
+}
