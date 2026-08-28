@@ -125,6 +125,49 @@ class TestMultiImageEvidence(unittest.TestCase):
         self.assertEqual(report["compliance_assessment"], "UNREADABLE_IMAGE")
         self.assertEqual(report["overall_score"], 100)
 
+    def test_package_mismatch(self):
+        """Test package mismatch detection when photos of different products are uploaded together."""
+        img1 = {
+            "image_index": 1,
+            "filename": "tata_salt.jpg",
+            "raw_text": "Tata Salt Iodised 1kg",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "FRONT_PANEL", "classification": "FRONT_PANEL"},
+            "extracted_entities": {},
+        }
+        img2 = {
+            "image_index": 2,
+            "filename": "amul_butter.jpg",
+            "raw_text": "Amul Butter Pasteurised 100g",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "FRONT_PANEL", "classification": "FRONT_PANEL"},
+            "extracted_entities": {},
+        }
+        report = apply_multi_image_rules([img1, img2], self.rules)
+        self.assertEqual(report["compliance_assessment"], "PACKAGE_MISMATCH")
+        self.assertFalse(report["package_identity"]["match"])
+
+    def test_duplicate_images_deduplicated(self):
+        """Verify identical duplicate image uploads are deduplicated safely."""
+        img1 = {
+            "image_index": 1,
+            "filename": "back_1.jpg",
+            "raw_text": "Manufactured by: Tata Consumer Products Ltd Net Wt: 1 kg MRP: Rs 28.00 Batch: TS202601 Country of Origin: India",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "BACK_DECLARATION_PANEL", "classification": "BACK_DECLARATION_PANEL"},
+            "extracted_entities": {"net_quantity": "1 kg"},
+        }
+        img2 = {
+            "image_index": 2,
+            "filename": "back_2_duplicate.jpg",
+            "raw_text": "Manufactured by: Tata Consumer Products Ltd Net Wt: 1 kg MRP: Rs 28.00 Batch: TS202601 Country of Origin: India",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "BACK_DECLARATION_PANEL", "classification": "BACK_DECLARATION_PANEL"},
+            "extracted_entities": {"net_quantity": "1 kg"},
+        }
+        report = apply_multi_image_rules([img1, img2], self.rules)
+        self.assertEqual(report["duplicate_count"], 1)
+
     def test_screenshot_evidence(self):
         """Verify UI screenshot results in SCREENSHOT assessment."""
         screenshot_img = {

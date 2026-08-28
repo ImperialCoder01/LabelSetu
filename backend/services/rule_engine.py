@@ -63,6 +63,38 @@ def _check_field(text_lower: str, field: dict) -> dict:
 # -----------------------------------------------------------------------
 # Public API
 # -----------------------------------------------------------------------
+def _validate_package_identity(image_results: list) -> dict:
+    """
+    Validate whether multiple uploaded images belong to the same physical product packaging.
+    Compares brand titles, product names, and packaging vocabulary.
+    Returns dict: {"match": bool, "status": "SAME_PACKAGE" | "PACKAGE_MISMATCH" | "PACKAGE_IDENTITY_UNCERTAIN", "detail": str}
+    """
+    valid_images = [img for img in image_results if img.get("classification", {}).get("panel_type") != "BARCODE_CATALOG"]
+    if len(valid_images) <= 1:
+        return {"match": True, "status": "SAME_PACKAGE", "detail": "Single image uploaded."}
+
+    brand_signals = []
+    for img in valid_images:
+        text_lower = (img.get("raw_text") or "").lower()
+        # Look for explicit brand words
+        known_brands = ["tata", "amul", "nivea", "pond's", "ponds", "americana", "britannia", "parle", "nestle", "dabur"]
+        found = [b for b in known_brands if b in text_lower]
+        if found:
+            brand_signals.append((img.get("filename", "image"), set(found)))
+
+    if len(brand_signals) >= 2:
+        b1_file, b1_set = brand_signals[0]
+        for b2_file, b2_set in brand_signals[1:]:
+            if not b1_set.intersection(b2_set):
+                return {
+                    "match": False,
+                    "status": "PACKAGE_MISMATCH",
+                    "detail": f"Package mismatch detected: {b1_file} ({list(b1_set)}) vs {b2_file} ({list(b2_set)}). Evidence was not merged."
+                }
+
+    return {"match": True, "status": "SAME_PACKAGE", "detail": "Packaging identity consistent across images."}
+
+
 def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
     """
     Multi-Image Evidence Aggregator & Legal Metrology Compliance Engine.
@@ -78,18 +110,18 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
         - extracted_entities_detailed (dict)
 
     Multi-Image Rules:
-      1. Merges visible declarations across all uploaded panels.
-      2. Assigns exact evidence_status per field:
+      1. Deduplicates identical image uploads.
+      2. Validates same-package identity (PACKAGE_MISMATCH prevention).
+      3. Merges visible declarations across all uploaded panels.
+      4. Assigns exact evidence_status per field:
          - CONFIRMED_PRESENT: Supported by readable image/OCR text on any uploaded panel.
          - CONFIRMED_MISSING: Declaration panel was photographed & readable, but field is genuinely missing.
          - NOT_VISIBLE: Relevant declaration panel was not photographed (e.g. only Front Panel uploaded).
          - UNREADABLE: Panel captured, but image quality is unreadable.
          - CONFLICTING_EVIDENCE: Multiple images return conflicting extracted values.
-      3. Evidence-aware scoring:
+      5. Evidence-aware scoring:
          - ONLY CONFIRMED_MISSING fields deduct score points.
          - NOT_VISIBLE, UNREADABLE, and NOT_DETECTED do NOT penalize the score.
-      4. Calculates Evidence Coverage (e.g., "5/8 declarations assessable").
-      5. Formulates actionable user guidance for missing panels.
     """
     all_fields = rules.get("fields", [])
     active_fields = [f for f in all_fields if f.get("active", True)]
@@ -100,12 +132,45 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
     if not image_results:
         return apply_rules("", rules)
 
+    # 1. Deduplicate identical image text uploads
+    unique_image_results = []
+    seen_texts = set()
+    duplicate_count = 0
+
+    for img_res in image_results:
+        txt = (img_res.get("raw_text") or "").strip()
+        if txt and txt in seen_texts and img_res.get("classification", {}).get("panel_type") != "BARCODE_CATALOG":
+            duplicate_count += 1
+            continue
+        if txt:
+            seen_texts.add(txt)
+        unique_image_results.append(img_res)
+
+    # 2. Package Identity Check
+    pkg_identity = _validate_package_identity(unique_image_results)
+    if not pkg_identity["match"]:
+        return {
+            "overall_score": 0,
+            "status": "fail",
+            "compliance_assessment": "PACKAGE_MISMATCH",
+            "evidence_coverage": "0/8 declarations assessable",
+            "captured_panels": [img.get("classification", {}).get("panel_type") for img in unique_image_results],
+            "total_fields": len(active_fields),
+            "passed": 0,
+            "failed": len(active_fields),
+            "critical_failures": [],
+            "minor_failures": [],
+            "fields": [],
+            "actions_required": [pkg_identity["detail"]],
+            "package_identity": pkg_identity,
+        }
+
     captured_panels = set()
     has_readable_back_panel = False
     has_unreadable_image = False
     has_screenshot = False
 
-    for img_res in image_results:
+    for img_res in unique_image_results:
         panel = img_res.get("classification", {}).get("panel_type", "UNKNOWN")
         captured_panels.add(panel)
 
@@ -131,7 +196,7 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
         matches = []
         conflicting_values = set()
 
-        for img_res in image_results:
+        for img_res in unique_image_results:
             panel = img_res.get("classification", {}).get("panel_type", "UNKNOWN")
             if panel == "BARCODE_CATALOG":
                 continue
@@ -167,11 +232,13 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
             status = "fail"
             score_impact = 0
             reason = f"Conflicting values detected across images: {list(conflicting_values)}"
+            action = f"Photograph the {field_name} declaration area more clearly to resolve value conflict."
         elif len(matches) > 0:
             evidence_status = "CONFIRMED_PRESENT"
             status = "pass"
             score_impact = 0
             reason = f"Matched '{matches[0]['matched_keyword']}' in {matches[0]['filename']} ({matches[0]['panel_type']})"
+            action = "Declaration verified."
             passed_count += 1
             assessable_count += 1
         elif has_readable_back_panel:
@@ -179,22 +246,26 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
             status = "fail"
             score_impact = -critical_weight if field["severity"] == "Critical" else -minor_weight
             reason = "Back declaration panel was photographed and readable, but declaration is absent."
+            action = f"Mandatory declaration '{field_name}' is physically missing from the photographed declaration panel."
             assessable_count += 1
         elif has_unreadable_image and not has_readable_back_panel:
             evidence_status = "UNREADABLE"
             status = "fail"
             score_impact = 0
             reason = "Relevant area was photographed, but image quality is unreadable."
+            action = f"Retake photo of {field_name} region closer with steady focus and clear lighting."
         elif "FRONT_PANEL" in captured_panels and not has_readable_back_panel:
             evidence_status = "NOT_VISIBLE"
             status = "fail"
             score_impact = 0
             reason = "Only front panel captured. Declaration panel is not visible."
+            action = f"Upload a clear photo of the back/side declaration panel to verify {field_name}."
         else:
             evidence_status = "NOT_DETECTED"
             status = "fail"
             score_impact = 0
             reason = "Declaration could not be detected from available images."
+            action = f"Upload a clearer photo showing {field_name}."
 
         field_res = {
             "field_id": field_id,
@@ -208,6 +279,7 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
             "score_impact": score_impact,
             "description": field.get("description", ""),
             "reason": reason,
+            "action": action,
             "active": field.get("active", True),
         }
 
@@ -269,6 +341,8 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
         "minor_failures": minor_failures,
         "fields": field_results,
         "actions_required": actions_required,
+        "package_identity": pkg_identity,
+        "duplicate_count": duplicate_count,
     }
 
 
