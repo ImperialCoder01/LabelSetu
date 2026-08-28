@@ -238,6 +238,30 @@ New Delhi - 110020"""
         t_j2 = "Country   of   Origin - India"
         self.assertEqual(extract_entities_from_text(t_j2)["country_of_origin"], "India")
 
+    def test_multipack_net_quantity_safety_rules(self):
+        """Test explicit multi-pack printed total, pack count isolation, and ambiguous non-inference rules."""
+        # A. Explicit total (grams)
+        t_a = "Net Qty: 2 N x 100 g = 200 g"
+        self.assertEqual(extract_entities_from_text(t_a)["net_quantity"], "200 g")
+
+        # B. Explicit total (ml)
+        t_b = "Net Content: 2 x 100 ml = 200 ml"
+        self.assertEqual(extract_entities_from_text(t_b)["net_quantity"], "200 ml")
+
+        # C. Pack count isolation (2 N should not become 2 g or 2 ml)
+        t_c = "Net Qty: 2 N"
+        self.assertEqual(extract_entities_from_text(t_c)["net_quantity"], "2 N")
+
+        # D. Ambiguous pack declaration (3 Packs of 50 ml does NOT become 150 ml)
+        t_d = "3 Packs of 50 ml"
+        res_d = extract_entities_from_text(t_d)["net_quantity"]
+        self.assertEqual(res_d, "50 ml")
+        self.assertNotEqual(res_d, "150 ml")
+
+        # F. Arbitrary number & USP protection
+        t_f = "Batch 123456\nMRP ₹ 200\nUSP ₹ 2.60/ml\nDate 15/08/2026\nPhone 1800-123-4567"
+        self.assertIsNone(extract_entities_from_text(t_f)["net_quantity"])
+
 
 if __name__ == "__main__":
     unittest.main()

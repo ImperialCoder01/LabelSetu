@@ -50,23 +50,34 @@ def _load_model_weights() -> Dict[str, Any]:
 def _extract_net_quantity(text: str) -> Optional[str]:
     """
     Extract net quantity with strict priority:
-    1. Explicit declarations (Net Content, Net Quantity, Net Wt, Net Weight, Net Vol, etc.)
-    2. Standalone quantity declarations strictly excluding USP / Unit Sale Price lines.
+    1. Explicit Multi-Pack Printed Total (e.g. '2 N x 100 g = 200 g' -> '200 g', '2 x 100 ml = 200 ml' -> '200 ml').
+    2. Explicit Net Quantity declarations (Net Content, Net Quantity, Net Wt, Net Weight, Net Vol, etc.).
+    3. Standalone quantity declarations strictly excluding USP, MRP, Batch numbers, and price per unit lines.
+    
+    Safety Principle:
+    Does NOT calculate inferred totals (e.g. '3 Packs of 50 ml' will NOT become '150 ml') unless an explicit total is printed.
     """
     if not text or not text.strip():
         return None
 
+    # Priority 0: Explicit Multi-Pack Printed Total (e.g., '2 N x 100 g = 200 g', '2 x 100 ml = 200 ml')
+    multi_pack_total_pattern = r"\b(?:\d+\s*[Nn]?\s*[xX*]\s*[\d\.]+\s*(?:g|kg|ml|l|ltr|gm|pcs|pieces|nos)\s*=\s*)([\d\.]+\s*(?:g|kg|ml|l|ltr|gm|pcs|pieces|nos)\b)"
+    match = re.search(multi_pack_total_pattern, text, re.IGNORECASE)
+    if match:
+        val = match.group(1).strip()
+        if not re.search(r"(?:usp|unit\s*sale\s*price|unit\s*price)\s*[:\.-]?\s*" + re.escape(val), text, re.IGNORECASE):
+            return val
+
     # Priority 1: Explicit prefixes
     explicit_patterns = [
-        r"(?:net\s*(?:content|contents|quantity|qty|weight|wt|volume|vol)(?:\s*\([^)]*\))?)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|litres|litre|gm|pcs|pieces|nos)\b(?:\s*\([\d\.]+\s*(?:g|kg|ml|l|ltr|gm)\))?)",
-        r"(?:net\s*(?:content|contents|quantity|qty|weight|wt|volume|vol)(?:\s*\([^)]*\))?)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|litres|litre|gm|pcs|pieces|nos)\b)",
+        r"(?:net\s*(?:content|contents|quantity|qty|weight|wt|volume|vol)(?:\s*\([^)]*\))?)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|litres|litre|gm|pcs|pieces|nos|n)\b(?:\s*\([\d\.]+\s*(?:g|kg|ml|l|ltr|gm)\))?)",
+        r"(?:net\s*(?:content|contents|quantity|qty|weight|wt|volume|vol)(?:\s*\([^)]*\))?)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|litres|litre|gm|pcs|pieces|nos|n)\b)",
     ]
 
     for pattern in explicit_patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             val = match.group(1).strip()
-            # Ensure it is not matching a USP string like 2.60/ml
             if not re.search(r"(?:usp|unit\s*sale\s*price|unit\s*selling\s*price|unit\s*price)\s*[:\.-]?\s*" + re.escape(val), text, re.IGNORECASE):
                 return val
 
@@ -74,11 +85,12 @@ def _extract_net_quantity(text: str) -> Optional[str]:
     lines = text.split("\n")
     clean_lines = []
     for line in lines:
-        if not re.search(r"\b(?:usp|unit\s*sale\s*price|unit\s*selling\s*price|unit\s*price|per\s*(?:g|ml|kg|l|ltr)|/\s*(?:g|ml|kg|l|ltr))\b", line, re.IGNORECASE):
+        if not re.search(r"\b(?:usp|unit\s*sale\s*price|unit\s*selling\s*price|unit\s*price|per\s*(?:g|ml|kg|l|ltr)|/\s*(?:g|ml|kg|l|ltr)|batch|lot|mrp|rs\.?|₹)\b", line, re.IGNORECASE):
             clean_lines.append(line)
         else:
             cleaned_line = re.sub(r"(?:usp|unit\s*sale\s*price|unit\s*selling\s*price|unit\s*price)\s*[:\.-]?\s*[^,\n]+", "", line, flags=re.IGNORECASE)
             cleaned_line = re.sub(r"\b[\d\.]+\s*(?:per|/)\s*(?:g|ml|kg|l|ltr)\b", "", cleaned_line, flags=re.IGNORECASE)
+            cleaned_line = re.sub(r"\b(?:batch|lot|mrp)\s*[:\.-]?\s*[\w\.,]+", "", cleaned_line, flags=re.IGNORECASE)
             clean_lines.append(cleaned_line)
 
     clean_text = "\n".join(clean_lines)

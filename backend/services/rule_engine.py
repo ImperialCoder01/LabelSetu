@@ -73,7 +73,10 @@ def _canonicalize_field_value(field_id: str, val: Any) -> str:
         return ""
     s = str(val).strip().lower()
     s_clean = re.sub(r"\s+", "", s)
-    if field_id == "mrp":
+    if field_id in ("net_quantity", "quantity"):
+        s_clean = re.sub(r"^(?:net\s*(?:content|contents|quantity|qty|weight|wt|volume|vol))\s*[:\.-]?", "", s, flags=re.IGNORECASE)
+        s_clean = re.sub(r"\s+", "", s_clean).strip()
+    elif field_id == "mrp":
         s_clean = re.sub(r"^(?:rs\.?|₹|inr)\s*", "", s_clean, flags=re.IGNORECASE)
     elif field_id in ("mfg_date", "manufacturing_date", "expiry_date"):
         s_clean = s_clean.replace("-", "/")
