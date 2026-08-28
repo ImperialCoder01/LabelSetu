@@ -127,29 +127,85 @@ INV_MONTH_MAP = {
 }
 
 
+MFG_PREFIX_PATTERN = r"(?:mfg|mfd|manufactured|pkd|packed|pkg|dop|date\s*of\s*mfg|date\s*of\s*packing)\s*(?:date|on)?"
+
+MFG_DATE_BOUNDARIES = [
+    r"\b(?:batch\s*no|batch|lot\s*no|lot)\b",
+    r"\b(?:mrp|max\s*retail\s*price|price)\b",
+    r"\b(?:net\s*wt|net\s*weight|net\s*qty|net\s*quantity|net\s*vol|net\s*content|contents)\b",
+    r"\b(?:exp|expiry|best\s*before|use\s*by)\b",
+    r"\b(?:country\s*of\s*origin|made\s*in|product\s*of)\b",
+    r"\b(?:manufactured\s*by|manufactured\s*at|mfg\.?\s*by|packed\s*by|pkd\.?\s*by)\b",
+    r"\b(?:marketed\s*by|marketed\s*at|imported\s*by|importer)\b",
+    r"\b(?:customer\s*care|consumer\s*care|care\s*line|toll\s*free)\b",
+    r"\b(?:fssai|lic\s*no)\b",
+    r"\b(?:ingredients|nutrition|nutritional)\b",
+    r"\b(?:usp|unit\s*sale\s*price|unit\s*price)\b",
+]
+
+
+def _match_date_in_str(s: str) -> Optional[str]:
+    """Helper to check if a string contains a valid textual or numeric date."""
+    if not s or not s.strip():
+        return None
+
+    # Textual Month (e.g. DEC 2026, DECEMBER 2026, AUG-2026)
+    textual_match = re.search(r"\b([a-zA-Z]{3,9})[\s\.-]+(\d{2,4})\b", s, re.IGNORECASE)
+    if textual_match:
+        m_str, y_str = textual_match.group(1).strip(), textual_match.group(2).strip()
+        if m_str.lower() in MONTH_MAP:
+            return f"{m_str.upper()} {y_str}"
+
+    # Numeric Date (e.g. 15/08/2026, 12/2026, 15-08-2026)
+    numeric_match = re.search(r"\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{2,4})\b", s, re.IGNORECASE)
+    if numeric_match:
+        return numeric_match.group(1).strip()
+
+    return None
+
+
 def _extract_mfg_date(text: str) -> Optional[str]:
     """
-    Extract manufacturing/packaging date from OCR text.
-    Supports textual month abbreviations (e.g., 'Mfg: DEC 2026', 'Packed on: AUG-2026')
-    as well as numeric formats (e.g., 'Mfg: 12/2026', '15/08/2026').
-    Requires explicit manufacturing context prefixes.
+    Extract manufacturing/packaging date from OCR text across single or multi-line declarations.
+    Supports same-line (e.g., 'Mfg Date: 15/08/2026') and one-line-separated formats (e.g., 'Mfg Date:\n15/08/2026').
+    Terminates strictly before semantic boundaries (Batch, MRP, Net Qty, Best Before) to prevent false positives.
     """
     if not text or not text.strip():
         return None
 
-    # Priority 1: Textual Month (e.g., Mfg: DEC 2026, Manufactured: DECEMBER 2026, Packed: AUG-2026)
-    textual_pattern = r"(?:mfg|mfd|manufactured|pkd|packed|pkg|dop)\s*(?:date|on)?\s*[:\.-]?\s*\b([a-zA-Z]{3,9})[\s\.-]+(\d{2,4})\b"
-    match = re.search(textual_pattern, text, re.IGNORECASE)
-    if match:
-        month_str, year_str = match.group(1).strip(), match.group(2).strip()
-        if month_str.lower() in MONTH_MAP:
-            return f"{month_str.upper()} {year_str}"
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
 
-    # Priority 2: Numeric Date (e.g., Mfg: 12/2026, Pkd: 15/08/2026)
-    numeric_pattern = r"(?:mfg|mfd|manufactured|pkd|packed|pkg|dop)\s*(?:date|on)?\s*[:\.-]?\s*\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{2,4})\b"
-    match = re.search(numeric_pattern, text, re.IGNORECASE)
-    if match:
-        return match.group(1).strip()
+    for idx, line in enumerate(lines):
+        prefix_match = re.search(MFG_PREFIX_PATTERN, line, re.IGNORECASE)
+        if prefix_match:
+            after_prefix = line[prefix_match.end():].strip()
+            after_prefix = re.sub(r"^[:\.-]+", "", after_prefix).strip()
+
+            if after_prefix:
+                hit_boundary = False
+                for boundary in MFG_DATE_BOUNDARIES:
+                    if re.search(boundary, after_prefix, re.IGNORECASE):
+                        hit_boundary = True
+                        break
+
+                if not hit_boundary:
+                    date_val = _match_date_in_str(after_prefix)
+                    if date_val:
+                        return date_val
+
+            if idx + 1 < len(lines):
+                next_line = lines[idx + 1]
+
+                hit_boundary = False
+                for boundary in MFG_DATE_BOUNDARIES:
+                    if re.search(boundary, next_line, re.IGNORECASE):
+                        hit_boundary = True
+                        break
+
+                if not hit_boundary:
+                    date_val = _match_date_in_str(next_line)
+                    if date_val:
+                        return date_val
 
     return None
 

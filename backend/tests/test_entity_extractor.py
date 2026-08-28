@@ -262,6 +262,41 @@ New Delhi - 110020"""
         t_f = "Batch 123456\nMRP ₹ 200\nUSP ₹ 2.60/ml\nDate 15/08/2026\nPhone 1800-123-4567"
         self.assertIsNone(extract_entities_from_text(t_f)["net_quantity"])
 
+    def test_multiline_mfg_date_and_boundary_protection(self):
+        """Test multi-line manufacturing date extraction and strict boundary protection."""
+        # Multi-line formats
+        t_m1 = "Mfg Date:\n15/08/2026"
+        self.assertEqual(extract_entities_from_text(t_m1)["mfg_date"], "15/08/2026")
+
+        t_m2 = "Packed on:\nAUG 2026"
+        self.assertEqual(extract_entities_from_text(t_m2)["mfg_date"], "AUG 2026")
+
+        t_m3 = "Manufactured:\nDEC 2026"
+        self.assertEqual(extract_entities_from_text(t_m3)["mfg_date"], "DEC 2026")
+
+        t_m4 = "Manufactured:\nDECEMBER 2026"
+        self.assertEqual(extract_entities_from_text(t_m4)["mfg_date"], "DECEMBER 2026")
+
+        # Same-line regression protection
+        t_s1 = "Mfg Date: 15/08/2026"
+        self.assertEqual(extract_entities_from_text(t_s1)["mfg_date"], "15/08/2026")
+
+        t_s2 = "Packed on: AUG 2026"
+        self.assertEqual(extract_entities_from_text(t_s2)["mfg_date"], "AUG 2026")
+
+        # Boundary protection against arbitrary text/numbers on next line
+        t_b1 = "Mfg Date:\nBatch 123456"
+        self.assertIsNone(extract_entities_from_text(t_b1)["mfg_date"])
+
+        t_b2 = "Mfg Date:\nMRP ₹200"
+        self.assertIsNone(extract_entities_from_text(t_b2)["mfg_date"])
+
+        t_b3 = "Mfg Date:\nNet Qty 400g"
+        self.assertIsNone(extract_entities_from_text(t_b3)["mfg_date"])
+
+        t_b4 = "Mfg Date:\nUSP ₹2.60/ml"
+        self.assertIsNone(extract_entities_from_text(t_b4)["mfg_date"])
+
 
 if __name__ == "__main__":
     unittest.main()
