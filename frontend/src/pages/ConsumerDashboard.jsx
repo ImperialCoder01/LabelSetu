@@ -682,7 +682,22 @@ export default function ConsumerDashboard() {
       setScreen("results");
       fetchScans();
     } catch (err) {
-      setScanError(err.message);
+      console.error("[LabelSetu Scan Diagnostic]", {
+        apiHost: API_BASE,
+        endpoint: `${API_BASE}/api/scans/scan`,
+        errorName: err.name,
+        errorMessage: err.message,
+        online: typeof navigator !== "undefined" ? navigator.onLine : true,
+      });
+      setScanError({
+        message: err.message,
+        diagnostic: {
+          apiHost: API_BASE,
+          endpoint: "POST /api/scans/scan",
+          online: typeof navigator !== "undefined" ? navigator.onLine : true,
+          errorName: err.name,
+        },
+      });
       setScreen("upload");
     }
   }
@@ -753,7 +768,27 @@ export default function ConsumerDashboard() {
             )}
           </div>
 
-          {scanError && <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-800">{scanError}</div>}
+          {scanError && (
+            <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-xs space-y-2">
+              <div className="flex items-start gap-2">
+                <span className="text-red-600 font-bold text-sm">⚠️</span>
+                <div className="flex-1">
+                  <p className="font-bold text-red-900">{typeof scanError === "object" ? scanError.message : scanError}</p>
+                  {typeof scanError === "object" && scanError.diagnostic && (
+                    <details className="mt-2 text-[11px] text-slate-600 cursor-pointer">
+                      <summary className="font-semibold text-red-800 hover:underline">Technical Diagnostics</summary>
+                      <div className="mt-1.5 p-2 bg-white rounded border border-slate-200 font-mono text-[10px] space-y-1">
+                        <div><span className="text-slate-400">API Host:</span> {scanError.diagnostic.apiHost}</div>
+                        <div><span className="text-slate-400">Request:</span> {scanError.diagnostic.endpoint}</div>
+                        <div><span className="text-slate-400">Online:</span> {scanError.diagnostic.online ? "Yes" : "No"}</div>
+                        {scanError.diagnostic.errorName && <div><span className="text-slate-400">Type:</span> {scanError.diagnostic.errorName}</div>}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           <button
             type="button"
@@ -766,7 +801,7 @@ export default function ConsumerDashboard() {
         </>
       )}
 
-      {screen === "barcode" && <BarcodeScanner onDetected={(code) => { setCapturedBarcode(code); setScreen("upload"); }} onCancel={() => setScreen("upload")} onError={(msg) => { setScanError(msg); setScreen("upload"); }} />}
+      {screen === "barcode" && <BarcodeScanner onDetected={(code) => { setCapturedBarcode(code); setScreen("upload"); }} onCancel={() => setScreen("upload")} onError={(msg) => { setScanError({ message: msg }); setScreen("upload"); }} />}
       {screen === "processing" && <ProcessingScreen />}
       {screen === "results" && <ResultsScreen report={lastResult} onScanAgain={() => { setLastResult(null); setScreen("upload"); }} />}
 
