@@ -16,6 +16,11 @@
     @apply bg-white rounded-xl border border-slate-200/90 shadow-sm p-6 transition-all duration-200;
   }
 
+  /* Backward-compatible alias — secondary pages (BrandDashboard, RegulatorDashboard, Admin) still use .card */
+  .card {
+    @apply bg-white rounded-xl border border-slate-200/90 shadow-sm p-6 transition-all duration-200;
+  }
+
   .card-slate-hover {
     @apply hover:border-slate-300 hover:shadow-md;
   }
