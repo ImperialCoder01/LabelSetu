@@ -624,13 +624,37 @@ export default function ConsumerDashboard() {
   const [reportSuccess, setReportSuccess] = useState(null);
   const [reportError, setReportError] = useState(null);
 
-  useEffect(() => { fetchScans(); }, []);
+  useEffect(() => { fetchScans(); }, [user]);
 
   async function fetchScans() {
     if (!user) return;
-    const { data, error } = await supabase.from("scans").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
-    if (!error) setScans(data || []);
-    setHistoryLoading(false);
+    try {
+      setHistoryLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        try {
+          const res = await fetch(`${API_BASE}/api/scans/`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              setScans(data);
+              setHistoryLoading(false);
+              return;
+            }
+          }
+        } catch (apiErr) {
+          console.debug("Backend scans fetch fallback:", apiErr);
+        }
+      }
+      const { data, error } = await supabase.from("scans").select("*").eq("user_id", user.id).order("created_at", { ascending: false });
+      if (!error) setScans(data || []);
+    } catch (err) {
+      console.error("Failed to load history:", err);
+    } finally {
+      setHistoryLoading(false);
+    }
   }
 
   function handleFilesSelected(newFiles) {

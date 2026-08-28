@@ -1,8 +1,20 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import AppDrawer from "../../components/AppDrawer";
+
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu.onrender.com").replace(/\/$/, "");
+
+function getScanTitle(scan) {
+  if (scan.product_name && scan.product_name !== "Product Packaging") return scan.product_name;
+  if (scan.brand) return `${scan.brand} Product`;
+  if (scan.extracted_text) {
+    const lines = scan.extracted_text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (lines.length > 0 && lines[0].length <= 50) return lines[0];
+  }
+  return "Packaging Scan";
+}
 
 export default function MyScansPage() {
   const { user } = useAuth();
@@ -12,30 +24,56 @@ export default function MyScansPage() {
   const [filter, setFilter] = useState("all");
   const [selectedScan, setSelectedScan] = useState(null);
 
-  useEffect(() => {
-    async function loadScans() {
-      if (!user) return;
-      try {
-        setLoading(true);
-        const { data, error } = await supabase
-          .from("scans")
-          .select("*")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false });
-        if (!error && data) setScans(data);
-      } catch (err) {
-        console.error("Error fetching scans:", err);
-      } finally {
-        setLoading(false);
+  const loadScans = useCallback(async () => {
+    if (!user) return;
+    try {
+      setLoading(true);
+      // Try backend endpoint with auth token first for complete join & consistency
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        try {
+          const res = await fetch(`${API_BASE}/api/scans/`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              setScans(data);
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (apiErr) {
+          console.debug("Backend scans fetch fallback:", apiErr);
+        }
       }
+
+      // Supabase direct client fallback
+      const { data, error } = await supabase
+        .from("scans")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+      if (!error && data) setScans(data);
+    } catch (err) {
+      console.error("Error fetching scans:", err);
+    } finally {
+      setLoading(false);
     }
-    loadScans();
   }, [user]);
+
+  useEffect(() => {
+    loadScans();
+  }, [loadScans]);
 
   const filteredScans = useMemo(() => {
     return scans.filter((s) => {
+      const title = getScanTitle(s);
       const matchSearch =
+        title.toLowerCase().includes(search.toLowerCase()) ||
         (s.product_name || "").toLowerCase().includes(search.toLowerCase()) ||
+        (s.brand || "").toLowerCase().includes(search.toLowerCase()) ||
+        (s.barcode || "").toLowerCase().includes(search.toLowerCase()) ||
         (s.extracted_text || "").toLowerCase().includes(search.toLowerCase());
       if (!matchSearch) return false;
 
@@ -54,9 +92,18 @@ export default function MyScansPage() {
           <h2 className="text-xl font-black text-slate-900 tracking-tight">My Scans History</h2>
           <p className="text-xs text-slate-500 mt-0.5">All packaging audits verified from your account</p>
         </div>
-        <Link to="/consumer/scan" className="btn-accent flex-shrink-0">
-          <span>📷</span> Scan New Product
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadScans}
+            className="px-3 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all flex items-center gap-1.5"
+            title="Refresh Scan History"
+          >
+            <span>🔄</span> Refresh
+          </button>
+          <Link to="/consumer/scan" className="btn-accent flex-shrink-0">
+            <span>📷</span> Scan New Product
+          </Link>
+        </div>
       </div>
 
       {/* Search & Filters */}
@@ -65,7 +112,7 @@ export default function MyScansPage() {
           <span className="absolute inset-y-0 left-3 flex items-center text-slate-400">🔍</span>
           <input
             type="text"
-            placeholder="Search by product name, manufacturer, or keywords..."
+            placeholder="Search by product name, brand, barcode, or extracted text..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="input-field pl-9"
@@ -103,11 +150,14 @@ export default function MyScansPage() {
             const score = scan.compliance_score || 0;
             const isPassed = score >= 80;
             const isPartial = score >= 50 && score < 80;
+            const title = getScanTitle(scan);
             const dateStr = scan.created_at
               ? new Date(scan.created_at).toLocaleDateString("en-IN", {
                   day: "numeric",
                   month: "short",
                   year: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
                 })
               : "Recent";
 
@@ -134,17 +184,22 @@ export default function MyScansPage() {
                   </div>
 
                   <h3 className="text-sm font-extrabold text-slate-900 line-clamp-1">
-                    {scan.product_name || "Packaging Scan"}
+                    {title}
                   </h3>
+                  {scan.brand && (
+                    <p className="text-[11px] font-bold text-slate-500 mt-0.5">
+                      Brand: {scan.brand}
+                    </p>
+                  )}
                   <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-                    {scan.extracted_text ? scan.extracted_text.substring(0, 100) + "..." : "No text preview"}
+                    {scan.extracted_text ? scan.extracted_text.substring(0, 120) + "..." : "No text preview"}
                   </p>
                 </div>
 
                 <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-medium text-slate-500">Score:</span>
-                    <span className={`text-xs font-black ${isPassed ? "text-emerald-600" : "text-red-600"}`}>
+                    <span className={`text-xs font-black ${isPassed ? "text-emerald-600" : isPartial ? "text-amber-600" : "text-red-600"}`}>
                       {score}/100
                     </span>
                   </div>
@@ -162,7 +217,7 @@ export default function MyScansPage() {
       <AppDrawer
         isOpen={Boolean(selectedScan)}
         onClose={() => setSelectedScan(null)}
-        title={selectedScan?.product_name || "Packaging Report"}
+        title={selectedScan ? getScanTitle(selectedScan) : "Packaging Report"}
         subtitle={`Audit ID: ${selectedScan?.id?.substring(0, 8) || "N/A"}`}
       >
         {selectedScan && (
@@ -173,11 +228,18 @@ export default function MyScansPage() {
                 <p className="text-2xl font-black text-slate-900">{selectedScan.compliance_score || 0} / 100</p>
               </div>
               <span className={`text-xs font-extrabold px-3 py-1 rounded-lg ${
-                (selectedScan.compliance_score || 0) >= 80 ? "badge-compliant" : "badge-violation"
+                (selectedScan.compliance_score || 0) >= 80 ? "badge-compliant" : (selectedScan.compliance_score || 0) >= 50 ? "badge-warning" : "badge-violation"
               }`}>
-                {(selectedScan.compliance_score || 0) >= 80 ? "Compliant" : "Potential Violation"}
+                {(selectedScan.compliance_score || 0) >= 80 ? "Compliant" : (selectedScan.compliance_score || 0) >= 50 ? "Requires Attention" : "Potential Violation"}
               </span>
             </div>
+
+            {selectedScan.barcode && (
+              <div className="card-slate p-3 flex items-center justify-between">
+                <span className="text-xs text-slate-500 font-bold uppercase">Barcode / GTIN</span>
+                <span className="font-mono text-xs font-black text-slate-800">{selectedScan.barcode}</span>
+              </div>
+            )}
 
             {selectedScan.extracted_text && (
               <div>

@@ -66,7 +66,7 @@ async def scan(
     files: Optional[List[UploadFile]] = File(None, description="1 to 5 product label images"),
     file: Optional[UploadFile] = File(None, description="Single product label image (legacy single-file support)"),
     barcode: Optional[str] = Form(None, description="Barcode/GTIN number if scanned"),
-    user: dict = Depends(require_role("consumer", "brand")),
+    user: dict = Depends(require_role("consumer", "brand", "regulator", "admin")),
 ):
     """
     Multi-image scan pipeline with parallelized AI & external research execution.
@@ -252,28 +252,6 @@ async def scan(
     ai_analysis, external_research = await asyncio.gather(_run_ai_analysis(), _run_product_research())
     t_parallel_ms = round((time.perf_counter() - t_parallel_start) * 1000, 2)
 
-    # ---- Save to Supabase Database ----
-    t_db_start = time.perf_counter()
-    missing_field_ids = [f["field_id"] for f in compliance_report["fields"] if f["status"] == "fail"]
-    scan_data = {
-        "user_id": user["sub"],
-        "image_url": "",
-        "extracted_text": full_text[:5000],
-        "compliance_score": compliance_report["overall_score"],
-        "missing_fields": json.dumps(missing_field_ids),
-    }
-
-    try:
-        db_result = supabase.table("scans").insert(scan_data).execute()
-        scan_id = db_result.data[0]["id"] if db_result.data else None
-        saved = True
-    except Exception:
-        scan_id = None
-        saved = False
-
-    t_db_ms = round((time.perf_counter() - t_db_start) * 1000, 2)
-    t_total_ms = round((time.perf_counter() - t_start) * 1000, 2)
-
     # Aggregate entities across all uploaded images without overwriting valid data with nulls
     aggregated_entities = {}
     aggregated_entities_detailed = {}
@@ -310,6 +288,77 @@ async def scan(
             "detections": [],
             "average_confidence": 0.0,
         }
+
+    # ---- Save to Supabase Database ----
+    t_db_start = time.perf_counter()
+    missing_field_ids = [f["field_id"] for f in compliance_report["fields"] if f["status"] == "fail"]
+
+    # Ensure user profile exists for foreign key constraint
+    try:
+        supabase.table("users_profile").upsert({
+            "id": user["sub"],
+            "role": user.get("profile", {}).get("role") or user.get("role", "consumer"),
+            "status": "active"
+        }, on_conflict="id").execute()
+    except Exception as up_err:
+        logger.debug("users_profile ensure check: %s", up_err)
+
+    resolved_product_name = (
+        detected_product_name
+        or (barcode_data.get("product_name") if barcode_data else "")
+        or "Product Packaging"
+    )
+    resolved_brand = (
+        detected_brand
+        or (barcode_data.get("brand") if barcode_data else "")
+        or ""
+    )
+    resolved_barcode = barcode_clean or (barcode_data.get("barcode") if barcode_data else "") or ""
+
+    scan_data = {
+        "user_id": user["sub"],
+        "image_url": "",
+        "extracted_text": full_text[:5000],
+        "compliance_score": compliance_report["overall_score"] if compliance_report["overall_score"] is not None else 0,
+        "missing_fields": missing_field_ids,
+        "product_name": resolved_product_name,
+        "brand": resolved_brand,
+        "barcode": resolved_barcode,
+        "metadata": {
+            "status": compliance_report.get("status", "unknown"),
+            "passed_declarations": compliance_report.get("passed_declarations", 0),
+            "failed_declarations": compliance_report.get("failed_declarations", 0),
+            "found_fields": compliance_report.get("found_fields", []),
+            "user_role": user_role,
+            "image_count": len(image_results),
+        }
+    }
+
+    try:
+        db_result = supabase.table("scans").insert(scan_data).execute()
+        scan_id = db_result.data[0]["id"] if db_result.data else None
+        saved = True
+        logger.info("[SCAN] Saved scan to DB with ID: %s", scan_id)
+    except Exception as db_exc:
+        logger.warning("[SCAN] Failed to save scan to database: %s", db_exc)
+        # Fallback to basic columns if custom columns encounter any issue
+        try:
+            fallback_data = {
+                "user_id": user["sub"],
+                "image_url": "",
+                "extracted_text": full_text[:5000],
+                "compliance_score": compliance_report["overall_score"] if compliance_report["overall_score"] is not None else 0,
+                "missing_fields": json.dumps(missing_field_ids),
+            }
+            db_result = supabase.table("scans").insert(fallback_data).execute()
+            scan_id = db_result.data[0]["id"] if db_result.data else None
+            saved = True
+        except Exception:
+            scan_id = None
+            saved = False
+
+    t_db_ms = round((time.perf_counter() - t_db_start) * 1000, 2)
+    t_total_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
     response = {
         "scan_id": scan_id,
@@ -351,19 +400,35 @@ async def scan(
 
 
 # ---------------------------------------------------------------------------
-# GET / — list current user's scan history
+# GET / — list scan history for current user or all scans for regulators/admins
 # ---------------------------------------------------------------------------
 @router.get("/")
-async def list_my_scans(user: dict = Depends(get_current_user)):
-    """List scans for the current user."""
-    result = (
-        supabase.table("scans")
-        .select("*")
-        .eq("user_id", user["sub"])
-        .order("created_at", desc=True)
-        .execute()
-    )
-    return result.data
+async def list_my_scans(
+    all: bool = False,
+    limit: int = 100,
+    offset: int = 0,
+    user: dict = Depends(get_current_user),
+):
+    """List scans for the current user or ecosystem scans for regulators/admins."""
+    role = user.get("profile", {}).get("role") or user.get("role", "consumer")
+    try:
+        query = supabase.table("scans").select("*, users_profile!scans_user_id_fkey(full_name, role)")
+        if not all or role not in ("admin", "regulator"):
+            query = query.eq("user_id", user["sub"])
+
+        result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+        return result.data or []
+    except Exception as exc:
+        logger.error("Failed to list scans: %s", exc)
+        # Fallback without join in case of relationship cache issues
+        try:
+            query = supabase.table("scans").select("*")
+            if not all or role not in ("admin", "regulator"):
+                query = query.eq("user_id", user["sub"])
+            result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+            return result.data or []
+        except Exception:
+            return []
 
 
 # ---------------------------------------------------------------------------

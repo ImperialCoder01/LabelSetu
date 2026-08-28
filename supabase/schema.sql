@@ -46,6 +46,10 @@ CREATE TABLE scans (
     extracted_text TEXT DEFAULT '',
     compliance_score INTEGER DEFAULT 0 CHECK (compliance_score >= 0 AND compliance_score <= 100),
     missing_fields JSONB DEFAULT '[]'::jsonb,
+    product_name TEXT DEFAULT '',
+    brand TEXT DEFAULT '',
+    barcode TEXT DEFAULT '',
+    metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
@@ -53,6 +57,8 @@ CREATE TABLE scans (
 CREATE INDEX idx_scans_user_id ON scans(user_id);
 CREATE INDEX idx_scans_created_at ON scans(created_at DESC);
 CREATE INDEX idx_scans_compliance_score ON scans(compliance_score);
+CREATE INDEX idx_scans_barcode ON scans(barcode);
+CREATE INDEX idx_scans_product_name ON scans(product_name);
 
 -- ============================================================
 -- 4. TABLE: audit_log

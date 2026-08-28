@@ -64,13 +64,30 @@ export default function RegulatorDashboard() {
         setCases(cData || []);
       }
 
-      // 2. Fetch Scans
-      const scansRes = await supabase
-        .from("scans")
-        .select("*, users_profile!scans_user_id_fkey(full_name, role)")
-        .order("created_at", { ascending: false })
-        .limit(100);
-      if (!scansRes.error) setScans(scansRes.data || []);
+      // 2. Fetch Scans (Backend API with Supabase fallback)
+      try {
+        const sRes = await fetch(`${API_BASE}/api/scans/?all=true&limit=100`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (Array.isArray(sData)) setScans(sData);
+        } else {
+          const scansRes = await supabase
+            .from("scans")
+            .select("*, users_profile!scans_user_id_fkey(full_name, role)")
+            .order("created_at", { ascending: false })
+            .limit(100);
+          if (!scansRes.error) setScans(scansRes.data || []);
+        }
+      } catch (scansErr) {
+        const scansRes = await supabase
+          .from("scans")
+          .select("*, users_profile!scans_user_id_fkey(full_name, role)")
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (!scansRes.error) setScans(scansRes.data || []);
+      }
 
       // 3. Fetch Forwarded Reports
       const repsRes = await supabase

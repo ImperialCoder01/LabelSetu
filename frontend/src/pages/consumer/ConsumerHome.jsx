@@ -4,6 +4,18 @@ import { useAuth } from "../../context/AuthContext";
 import { supabase } from "../../lib/supabase";
 import AppDrawer from "../../components/AppDrawer";
 
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu.onrender.com").replace(/\/$/, "");
+
+function getScanTitle(scan) {
+  if (scan.product_name && scan.product_name !== "Product Packaging") return scan.product_name;
+  if (scan.brand) return `${scan.brand} Product`;
+  if (scan.extracted_text) {
+    const lines = scan.extracted_text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (lines.length > 0 && lines[0].length <= 50) return lines[0];
+  }
+  return "Packaging Scan";
+}
+
 export default function ConsumerHome() {
   const { profile, user } = useAuth();
   const [scans, setScans] = useState([]);
@@ -19,6 +31,27 @@ export default function ConsumerHome() {
       if (!user) return;
       try {
         setLoading(true);
+        // Try backend API first with active token
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          try {
+            const res = await fetch(`${API_BASE}/api/scans/?limit=10`, {
+              headers: { Authorization: `Bearer ${session.access_token}` },
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (Array.isArray(data)) {
+                setScans(data);
+                setLoading(false);
+                return;
+              }
+            }
+          } catch (apiErr) {
+            console.debug("Backend scans fetch fallback:", apiErr);
+          }
+        }
+
+        // Direct supabase client fallback
         const { data, error } = await supabase
           .from("scans")
           .select("*")
@@ -241,7 +274,7 @@ export default function ConsumerHome() {
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-slate-900 truncate">
-                        {scan.product_name || "Packaging Scan"}
+                        {getScanTitle(scan)}
                       </p>
                       <p className="text-[11px] text-slate-400 mt-0.5">{dateStr}</p>
                     </div>

@@ -210,14 +210,37 @@ export default function BrandDashboard() {
 
   async function fetchScans() {
     if (!user) return;
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("scans")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
-    if (!error && data) setScans(data);
-    setLoading(false);
+    try {
+      setLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        try {
+          const res = await fetch(`${API_BASE}/api/scans/`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              setScans(data);
+              setLoading(false);
+              return;
+            }
+          }
+        } catch (apiErr) {
+          console.debug("Backend scans fetch fallback:", apiErr);
+        }
+      }
+      const { data, error } = await supabase
+        .from("scans")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+      if (!error && data) setScans(data);
+    } catch (err) {
+      console.error("Failed to load brand scans:", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function downloadCertificate(scanId) {
