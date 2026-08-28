@@ -1,10 +1,12 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
 
 from routers import users, scans, admin, regulators, ocr, barcodes, certificates, verification, reports, leaderboard, webhook
 from services.ocr_service import preload_model
+from services.rule_engine import load_rules
 
 load_dotenv()
 
@@ -13,6 +15,9 @@ app = FastAPI(
     description="Smart Label Compliance Backend",
     version="1.0.0",
 )
+
+# HTTP Response Compression Middleware — compresses responses >= 1000 bytes (reduces JSON payload size by 70-85%)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # CORS — allow frontend origins
 cors_origins = [
@@ -69,3 +74,27 @@ async def health_check():
     """Public health-check endpoint — no auth required.
     Used by Render's health check and UptimeRobot to prevent spin-down."""
     return {"status": "ok"}
+
+
+@app.get("/api/meta/rules")
+async def get_public_rules_metadata(response: Response):
+    """
+    Public deterministic Legal Metrology rules metadata endpoint.
+    Safe for public CDN/browser caching (Cache-Control: public, max-age=3600).
+    """
+    response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
+    rules = load_rules()
+    return {
+        "rules_version": "2026.1",
+        "standard": "Legal Metrology (Packaged Commodities) Rules, 2011",
+        "mandatory_fields_count": len(rules.get("fields", [])),
+        "fields": [
+            {
+                "id": f.get("id"),
+                "name": f.get("name"),
+                "severity": f.get("severity"),
+                "description": f.get("description"),
+            }
+            for f in rules.get("fields", [])
+        ],
+    }

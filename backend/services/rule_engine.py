@@ -19,11 +19,14 @@ from pathlib import Path
 from typing import Any
 
 
+from functools import lru_cache
+
 # -----------------------------------------------------------------------
-# Load rules
+# Load rules (Cached in memory to prevent repeated disk I/O)
 # -----------------------------------------------------------------------
-def load_rules() -> dict:
-    """Load compliance rules from backend/rules.json or docs/rules.json."""
+@lru_cache(maxsize=1)
+def _load_rules_cached() -> str:
+    """Read rules.json as a string once and cache in memory."""
     candidates = [
         Path(__file__).parent.parent / "rules.json",
         Path(__file__).parent.parent.parent / "docs" / "rules.json",
@@ -31,9 +34,15 @@ def load_rules() -> dict:
     for rules_path in candidates:
         if rules_path.exists():
             with open(rules_path, "r", encoding="utf-8") as f:
-                return json.load(f)
+                return f.read()
 
     raise FileNotFoundError("Rules file not found in backend/rules.json or docs/rules.json")
+
+
+def load_rules() -> dict:
+    """Load compliance rules from in-memory cache without repeated disk I/O."""
+    raw = _load_rules_cached()
+    return json.loads(raw)
 
 
 # -----------------------------------------------------------------------

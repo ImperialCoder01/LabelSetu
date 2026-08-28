@@ -78,6 +78,9 @@ export default function ScanProductPage() {
   const [screen, setScreen] = useState("upload");
   const [lastResult, setLastResult] = useState(null);
   const [scanError, setScanError] = useState(null);
+  const [processingStep, setProcessingStep] = useState("OPTIMIZING"); // OPTIMIZING | UPLOADING | AUDITING | AI_RECOVERY
+  const isSubmittingRef = useRef(false);
+  const activeAbortCtrlRef = useRef(null);
 
   const [activeRuleDrawer, setActiveRuleDrawer] = useState(null);
   const [ocrDrawerOpen, setOcrDrawerOpen] = useState(false);
@@ -110,6 +113,8 @@ export default function ScanProductPage() {
   };
 
   async function handleScan() {
+    if (isSubmittingRef.current) return; // Prevent accidental duplicate submissions
+
     if (isAdmin) {
       setScanError({
         message: "Live packaging audits are authorized for Consumer and Brand accounts. Please sign in with a consumer or brand account.",
@@ -122,7 +127,10 @@ export default function ScanProductPage() {
     }
 
     if (selectedFiles.length === 0 && !capturedBarcode) return;
+
+    isSubmittingRef.current = true;
     setScreen("processing");
+    setProcessingStep("OPTIMIZING");
     setScanError(null);
     setLastResult(null);
 
@@ -134,13 +142,7 @@ export default function ScanProductPage() {
         throw new Error("Authentication session expired. Please sign in again.");
       }
 
-      try {
-        const pingCtrl = new AbortController();
-        const t = setTimeout(() => pingCtrl.abort(), 4000);
-        await fetch(`${API_BASE}/health`, { signal: pingCtrl.signal });
-        clearTimeout(t);
-      } catch (_) {}
-
+      setProcessingStep("OPTIMIZING");
       const filesToUpload = await Promise.all(
         selectedFiles.map((file) => optimizeImageForUpload(file))
       );
@@ -151,8 +153,18 @@ export default function ScanProductPage() {
       });
       if (capturedBarcode) formData.append("barcode", capturedBarcode);
 
+      setProcessingStep("UPLOADING");
+
+      if (activeAbortCtrlRef.current) {
+        activeAbortCtrlRef.current.abort(); // Cancel any previous stale request
+      }
       const scanCtrl = new AbortController();
+      activeAbortCtrlRef.current = scanCtrl;
       const scanTimer = setTimeout(() => scanCtrl.abort(), 60000);
+
+      // Advance UI stage indicators responsively
+      const stepTimer1 = setTimeout(() => setProcessingStep("AUDITING"), 1500);
+      const stepTimer2 = setTimeout(() => setProcessingStep("AI_RECOVERY"), 3500);
 
       const res = await fetch(`${API_BASE}/api/scans/scan`, {
         method: "POST",
@@ -163,6 +175,8 @@ export default function ScanProductPage() {
         signal: scanCtrl.signal,
       });
       clearTimeout(scanTimer);
+      clearTimeout(stepTimer1);
+      clearTimeout(stepTimer2);
 
       if (!res.ok) {
         let errMessage = `Scanning failed (HTTP ${res.status})`;
@@ -177,6 +191,7 @@ export default function ScanProductPage() {
       setLastResult(resultData);
       setScreen("results");
     } catch (err) {
+      if (err.name === "AbortError" && !isSubmittingRef.current) return; // Silent abort if user navigated
       console.error("Scan error:", err);
       setScanError({
         message: err.name === "AbortError"
@@ -188,6 +203,9 @@ export default function ScanProductPage() {
         totalSizeKB: totalRawKB,
       });
       setScreen("upload");
+    } finally {
+      isSubmittingRef.current = false;
+      activeAbortCtrlRef.current = null;
     }
   }
 

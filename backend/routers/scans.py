@@ -1,80 +1,96 @@
 """
-Scans Router
+Scans Router — POST /api/scans/scan, GET /api/scans/, GET /api/scans/{id}
 
-POST  /api/scans/scan      — full pipeline: image → OCR → rules → score → save → report
-                             optionally accepts barcode for Open Food Facts cross-reference
-GET   /api/scans/          — list current user's scan history
-GET   /api/scans/{id}      — get a single scan by ID
+Handles multi-image label uploads, barcode cross-referencing,
+deterministic Legal Metrology rule engine evaluation, parallelized
+Groq AI analysis and external product research, and persistence to Supabase.
 """
 
-import io
+import asyncio
 import json
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from database import supabase
+import time
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from auth.dependencies import get_current_user, require_role
-from services.ocr_service import extract_text_with_scores
-from services.rule_engine import load_rules, apply_rules, apply_multi_image_rules
+from database import supabase
+from services.ai_service import analyze_label_with_groq
 from services.barcode_service import lookup_barcode, detect_manufacturer_mismatch
-from services.image_processor import analyze_image_quality, classify_image_content
 from services.entity_extractor import extract_entities_with_evidence
-from services.ai_service import analyze_label_with_groq, is_groq_available
+from services.image_processor import analyze_image_quality, classify_image_content
+from services.ocr_service import extract_text_with_scores
 from services.product_research_service import research_product_information
+from services.rule_engine import load_rules, apply_multi_image_rules
 
 router = APIRouter()
 
-# Load rules once at module level
-_rules = None
+# Magic bytes for common image formats
+_IMAGE_SIGNATURES = [
+    bytes([0x89, 0x50, 0x4E, 0x47]),  # PNG
+    bytes([0xFF, 0xD8, 0xFF]),        # JPEG
+    b"GIF87a",        # GIF87a
+    b"GIF89a",        # GIF89a
+    b"RIFF",          # WebP (RIFF container)
+    b"BM",            # BMP
+]
+
+# Cached in-memory rules reference
+_RULES_CACHE = None
+
+
+def _get_rules():
+    global _RULES_CACHE
+    if _RULES_CACHE is None:
+        _RULES_CACHE = load_rules()
+    return _RULES_CACHE
 
 
 def _is_valid_image(data: bytes) -> bool:
     """Check file magic bytes to confirm it is an image."""
     if len(data) < 12:
         return False
-    _IMAGE_SIGNATURES = [
-        b"\x89PNG",            # PNG
-        b"\xff\xd8\xff",      # JPEG
-        b"GIF87a",             # GIF87a
-        b"GIF89a",             # GIF89a
-        b"RIFF",               # WebP (RIFF container)
-        b"BM",                 # BMP
-    ]
     for sig in _IMAGE_SIGNATURES:
         if data[: len(sig)] == sig:
             return True
     return False
 
 
-def _get_rules() -> dict:
-    global _rules
-    if _rules is None:
-        _rules = load_rules()
-    return _rules
-
-
+# ---------------------------------------------------------------------------
+# POST /scan — Multi-image label upload + Barcode + Compliance check + Groq + Research
+# ---------------------------------------------------------------------------
 @router.post("/scan")
 async def scan(
-    file: Optional[UploadFile] = File(None, description="Single product label image"),
-    files: Optional[List[UploadFile]] = File(None, description="Multiple product packaging images of the same product"),
-    barcode: str = Form(default="", description="Optional barcode for Open Food Facts lookup"),
+    files: Optional[List[UploadFile]] = File(None, description="1 to 5 product label images"),
+    file: Optional[UploadFile] = File(None, description="Single product label image (legacy single-file support)"),
+    barcode: Optional[str] = Form(None, description="Barcode/GTIN number if scanned"),
     user: dict = Depends(require_role("consumer", "brand")),
 ):
     """
-    Upload one or multiple packaging label images (e.g. Front + Back panels)
-    and/or scan a barcode to run multi-image OCR evidence aggregation, apply
-    Legal Metrology rules, compute a score, save to Supabase, and return report.
+    Multi-image scan pipeline with parallelized AI & external research execution.
     """
-    barcode_clean = (barcode or "").strip()
+    t_start = time.perf_counter()
     upload_list = []
-
-    if len(files or []) + (1 if file else 0) > 5:
-        raise HTTPException(status_code=400, detail="Maximum 5 packaging images allowed per scan request.")
-
     if files:
         upload_list.extend(files)
-    if file:
+    if file and file not in upload_list:
         upload_list.append(file)
 
+    barcode_clean = barcode.strip() if barcode else None
+
+    if len(upload_list) == 0 and not barcode_clean:
+        raise HTTPException(
+            status_code=400,
+            detail="Please provide at least one product label image or a barcode number.",
+        )
+
+    if len(upload_list) > 5:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum 5 images allowed per scan.",
+        )
+
+    # ---- Image Processing & OCR ----
+    t_ocr_start = time.perf_counter()
     image_results = []
     combined_texts = []
 
@@ -117,6 +133,8 @@ async def scan(
                 "extracted_entities_detailed": detailed_entities,
             })
 
+    t_ocr_ms = round((time.perf_counter() - t_ocr_start) * 1000, 2)
+
     if len(image_results) == 0 and not barcode_clean:
         raise HTTPException(status_code=400, detail="Please upload at least one label image or scan a barcode.")
 
@@ -139,7 +157,6 @@ async def scan(
         synthetic_text = "\n".join(l for l in b_lines if l.strip())
         full_text = synthetic_text
 
-        # Synthetic image result for Open Food Facts barcode
         image_results.append({
             "image_index": len(image_results) + 1,
             "filename": "Open Food Facts Barcode Catalog",
@@ -150,59 +167,72 @@ async def scan(
             "extracted_entities_detailed": {},
         })
 
-    # ---- Multi-Image Compliance Evaluation ----
+    # ---- Authoritative Deterministic Compliance Evaluation ----
+    t_rules_start = time.perf_counter()
     compliance_report = apply_multi_image_rules(image_results, _get_rules())
+    t_rules_ms = round((time.perf_counter() - t_rules_start) * 1000, 2)
 
     if barcode_data and any(img["classification"].get("panel_type") != "BARCODE_CATALOG" for img in image_results):
         manufacturer_mismatch = detect_manufacturer_mismatch(full_text, barcode_data)
         # CRITICAL SAFETY: External barcode/catalog mismatches generate warning flags ONLY.
         # They do NOT alter the deterministic statutory compliance score.
 
-    # ---- Supplementary Groq AI Analysis (Non-Blocking) ----
-    ai_analysis = None
-    if full_text.strip():
+    # ---- Parallel Execution: Supplementary Groq AI + External Product Research ----
+    t_parallel_start = time.perf_counter()
+    loop = asyncio.get_running_loop()
+
+    async def _run_ai_analysis():
+        if not full_text.strip():
+            return {
+                "available": False,
+                "status": "no_text",
+                "provider": "groq",
+                "message": "No OCR text detected for AI analysis.",
+            }
         try:
-            ai_analysis = analyze_label_with_groq(
-                ocr_text=full_text,
-                extracted_entities=image_results[0].get("extracted_entities") if image_results else {},
-                rules_summary=compliance_report,
+            return await loop.run_in_executor(
+                None,
+                lambda: analyze_label_with_groq(
+                    ocr_text=full_text,
+                    extracted_entities=image_results[0].get("extracted_entities") if image_results else {},
+                    rules_summary=compliance_report,
+                )
             )
         except Exception as exc:
-            ai_analysis = {
+            return {
                 "available": False,
                 "status": "error",
                 "provider": "groq",
-                "message": "AI analysis temporarily unavailable. Statutory compliance verified via deterministic rule engine.",
+                "message": f"AI analysis temporarily unavailable ({exc}).",
             }
-    else:
-        ai_analysis = {
-            "available": False,
-            "status": "no_text",
-            "provider": "groq",
-            "message": "No OCR text detected for AI analysis.",
-        }
 
-    # ---- Supplementary External Product Research (Non-Blocking) ----
-    external_research = None
-    try:
-        external_research = research_product_information(
-            ocr_text=full_text,
-            extracted_entities=image_results[0].get("extracted_entities") if image_results else {},
-            missing_fields=compliance_report.get("fields", []),
-            barcode=barcode_clean,
-        )
-    except Exception as exc:
-        external_research = {
-            "status": "unavailable",
-            "message": "External product research temporarily unavailable.",
-            "product_match": {"status": "unavailable", "confidence": 0.0},
-            "sources": [],
-            "fields": [],
-            "recommended_photos": [],
-            "warnings": ["External product lookup could not be completed."],
-        }
+    async def _run_product_research():
+        try:
+            return await loop.run_in_executor(
+                None,
+                lambda: research_product_information(
+                    ocr_text=full_text,
+                    extracted_entities=image_results[0].get("extracted_entities") if image_results else {},
+                    missing_fields=compliance_report.get("fields", []),
+                    barcode=barcode_clean,
+                )
+            )
+        except Exception as exc:
+            return {
+                "status": "unavailable",
+                "message": "External product research temporarily unavailable.",
+                "product_match": {"status": "unavailable", "confidence": 0.0},
+                "sources": [],
+                "fields": [],
+                "recommended_photos": [],
+                "warnings": ["External product lookup could not be completed."],
+            }
 
-    # Save to Supabase
+    ai_analysis, external_research = await asyncio.gather(_run_ai_analysis(), _run_product_research())
+    t_parallel_ms = round((time.perf_counter() - t_parallel_start) * 1000, 2)
+
+    # ---- Save to Supabase Database ----
+    t_db_start = time.perf_counter()
     missing_field_ids = [f["field_id"] for f in compliance_report["fields"] if f["status"] == "fail"]
     scan_data = {
         "user_id": user["sub"],
@@ -219,6 +249,9 @@ async def scan(
     except Exception:
         scan_id = None
         saved = False
+
+    t_db_ms = round((time.perf_counter() - t_db_start) * 1000, 2)
+    t_total_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
     # First image or aggregated primary metadata
     primary_ocr = image_results[0]["ocr_result"] if image_results and "ocr_result" in image_results[0] else {
@@ -252,6 +285,14 @@ async def scan(
         "ai_analysis": ai_analysis,
         "external_research": external_research,
         "saved": saved,
+        "_performance": {
+            "total_ms": t_total_ms,
+            "ocr_ms": t_ocr_ms,
+            "rules_ms": t_rules_ms,
+            "parallel_tasks_ms": t_parallel_ms,
+            "db_ms": t_db_ms,
+            "concurrent_tasks": ["groq_ai", "product_research"],
+        },
     }
 
     if barcode_data:
@@ -295,7 +336,6 @@ async def get_scan(scan_id: str, user: dict = Depends(get_current_user)):
     if not result.data:
         raise HTTPException(status_code=404, detail="Scan not found")
 
-    # Check ownership (unless admin/regulator)
     user_role = user.get("profile", {}).get("role")
     if user_role not in ("admin", "regulator") and result.data["user_id"] != user["sub"]:
         raise HTTPException(status_code=403, detail="Access denied")
