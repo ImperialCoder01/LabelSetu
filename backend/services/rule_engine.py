@@ -89,6 +89,9 @@ def _canonicalize_field_value(field_id: str, val: Any) -> str:
             if m_name in s_clean:
                 s_clean = re.sub(m_name, m_num + "/", s_clean).replace("//", "/")
                 break
+    elif field_id in ("manufacturer_name_address", "manufacturer"):
+        s_clean = re.sub(r"[^\w\s]", "", s)
+        s_clean = re.sub(r"\s+", " ", s_clean).strip()
     return s_clean
 
 

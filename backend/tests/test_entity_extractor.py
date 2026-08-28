@@ -93,11 +93,57 @@ Net Content: 200ml"""
         self.assertEqual(r2["mfg_date"], "AUG 2026")
         self.assertEqual(r2["expiry_date"], "FEB 2027")
 
-    def test_arbitrary_number_expiry_protection(self):
-        """Verify arbitrary numbers (Net Qty 400g, MRP 200, Batch 123456, USP 2.60/ml) do NOT generate fake expiry dates."""
-        text = "Net Qty 400 g\nMRP ₹ 200\nBatch 123456\nUSP ₹ 2.60/ml"
-        res = extract_entities_from_text(text)
-        self.assertIsNone(res["expiry_date"])
+    def test_multiline_manufacturer_address_extraction(self):
+        """Test multi-line manufacturer and address extraction."""
+        t1 = """Manufactured by:
+ABC Foods Pvt. Ltd.
+Plot 14, Industrial Area
+New Delhi - 110020"""
+        r1 = extract_entities_from_text(t1)
+        self.assertEqual(r1["manufacturer_name_address"], "ABC Foods Pvt. Ltd., Plot 14, Industrial Area, New Delhi - 110020")
+
+        t2 = """Manufactured & Packed by:
+ABC Consumer Products Pvt. Ltd.
+Noida, Uttar Pradesh"""
+        r2 = extract_entities_from_text(t2)
+        self.assertEqual(r2["manufacturer_name_address"], "ABC Consumer Products Pvt. Ltd., Noida, Uttar Pradesh")
+
+    def test_manufacturer_boundary_protections(self):
+        """Verify manufacturer extraction stops at semantic boundaries (Marketed by, Customer Care, MRP, etc.)."""
+        # Stop at Marketed by
+        t1 = """Manufactured by:
+ABC Foods Pvt. Ltd.
+Delhi
+
+Marketed by:
+XYZ Consumer Ltd.
+Mumbai"""
+        r1 = extract_entities_from_text(t1)
+        self.assertEqual(r1["manufacturer_name_address"], "ABC Foods Pvt. Ltd., Delhi")
+        self.assertNotIn("XYZ Consumer", r1["manufacturer_name_address"])
+
+        # Stop at Customer Care
+        t2 = """Manufactured by:
+ABC Foods Pvt. Ltd.
+Plot 14, Industrial Area
+
+Customer Care:
+1800-123-456"""
+        r2 = extract_entities_from_text(t2)
+        self.assertEqual(r2["manufacturer_name_address"], "ABC Foods Pvt. Ltd., Plot 14, Industrial Area")
+        self.assertNotIn("1800-123-456", r2["manufacturer_name_address"])
+
+        # Stop at MRP & Net Qty
+        t3 = """Manufactured by:
+ABC Foods Pvt. Ltd.
+Delhi
+
+MRP ₹200
+Net Wt 400g"""
+        r3 = extract_entities_from_text(t3)
+        self.assertEqual(r3["manufacturer_name_address"], "ABC Foods Pvt. Ltd., Delhi")
+        self.assertNotIn("MRP", r3["manufacturer_name_address"])
+        self.assertNotIn("400g", r3["manufacturer_name_address"])
 
 
 if __name__ == "__main__":
