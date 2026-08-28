@@ -34,6 +34,11 @@ def _get_reader():
     global _reader
     if _reader is None:
         import easyocr
+        try:
+            import torch
+            torch.set_num_threads(1)
+        except Exception:
+            pass
 
         logger.info("Loading EasyOCR model (en) …")
         _reader = easyocr.Reader(["en"], gpu=False)  # set gpu=True if CUDA available
@@ -76,7 +81,7 @@ def _extract_cloud(image_bytes: bytes) -> str:
     headers = {"apikey": _ocr_space_api_key()}
 
     try:
-        with httpx.Client(timeout=60.0) as client:
+        with httpx.Client(timeout=12.0) as client:
             response = client.post(url, data=payload, headers=headers)
             response.raise_for_status()
 
@@ -119,7 +124,7 @@ def _extract_local(image_bytes: bytes) -> str:
         return ""
 
     reader = _get_reader()
-    results = reader.readtext(image)
+    results = reader.readtext(image, batch_size=1, canvas_size=1280, mag_ratio=1.0)
 
     # results is a list of (bbox, text, prob)
     texts = [text for (_, text, prob) in results if prob > 0.3]
@@ -144,7 +149,7 @@ def _extract_local_with_scores(image_bytes: bytes) -> dict:
 
     try:
         reader = _get_reader()
-        results = reader.readtext(image)
+        results = reader.readtext(image, batch_size=1, canvas_size=1280, mag_ratio=1.0)
 
         detections = []
         for bbox, text, confidence in results:
@@ -185,7 +190,7 @@ def _extract_cloud_with_scores(image_bytes: bytes) -> dict:
     headers = {"apikey": _ocr_space_api_key()}
 
     try:
-        with httpx.Client(timeout=60.0) as client:
+        with httpx.Client(timeout=12.0) as client:
             response = client.post(url, data=payload, headers=headers)
             response.raise_for_status()
 
