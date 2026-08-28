@@ -35,8 +35,8 @@ def _get_reader():
     if _reader is None:
         import easyocr
 
-        logger.info("Loading EasyOCR model (en + hi) … this may take a moment on first run")
-        _reader = easyocr.Reader(["en", "hi"], gpu=False)  # set gpu=True if CUDA available
+        logger.info("Loading EasyOCR model (en) …")
+        _reader = easyocr.Reader(["en"], gpu=False)  # set gpu=True if CUDA available
         logger.info("EasyOCR model loaded")
     return _reader
 
@@ -129,6 +129,7 @@ def _extract_local(image_bytes: bytes) -> str:
 def _extract_local_with_scores(image_bytes: bytes) -> dict:
     """Run EasyOCR and return detections with confidence and bounding boxes."""
     import numpy as np
+    import gc
 
     image_array = np.frombuffer(image_bytes, np.uint8)
     image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
@@ -141,29 +142,33 @@ def _extract_local_with_scores(image_bytes: bytes) -> dict:
             "average_confidence": 0.0,
         }
 
-    reader = _get_reader()
-    results = reader.readtext(image)
+    try:
+        reader = _get_reader()
+        results = reader.readtext(image)
 
-    detections = []
-    for bbox, text, confidence in results:
-        # Convert numpy arrays to plain Python lists for JSON serialization
-        bbox_list = [[int(pt[0]), int(pt[1])] for pt in bbox]
-        detections.append({
-            "text": text,
-            "confidence": round(float(confidence), 4),
-            "bbox": bbox_list,
-        })
+        detections = []
+        for bbox, text, confidence in results:
+            # Convert numpy arrays to plain Python lists for JSON serialization
+            bbox_list = [[int(pt[0]), int(pt[1])] for pt in bbox]
+            detections.append({
+                "text": text,
+                "confidence": round(float(confidence), 4),
+                "bbox": bbox_list,
+            })
 
-    full_text = " ".join(d["text"] for d in detections if d["confidence"] > 0.3)
-    confidences = [d["confidence"] for d in detections]
-    avg = round(sum(confidences) / len(confidences), 4) if confidences else 0.0
+        full_text = " ".join(d["text"] for d in detections if d["confidence"] > 0.3)
+        confidences = [d["confidence"] for d in detections]
+        avg = round(sum(confidences) / len(confidences), 4) if confidences else 0.0
 
-    return {
-        "provider": "local",
-        "full_text": full_text,
-        "detections": detections,
-        "average_confidence": avg,
-    }
+        return {
+            "provider": "local",
+            "full_text": full_text,
+            "detections": detections,
+            "average_confidence": avg,
+        }
+    finally:
+        del image, image_array
+        gc.collect()
 
 
 def _extract_cloud_with_scores(image_bytes: bytes) -> dict:

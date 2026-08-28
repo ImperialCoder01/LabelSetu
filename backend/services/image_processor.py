@@ -46,16 +46,26 @@ def auto_deskew(image: np.ndarray) -> np.ndarray:
     return image
 
 
+def _downscale_if_large(image: np.ndarray, max_dim: int = 1600) -> np.ndarray:
+    """Downscale large phone photos to max_dim to cap OpenCV memory while preserving OCR clarity."""
+    h, w = image.shape[:2]
+    if max(h, w) > max_dim:
+        scale = max_dim / float(max(h, w))
+        new_w, new_h = int(w * scale), int(h * scale)
+        return cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return image
+
+
 def enhance_image_for_ocr(image_bytes: bytes) -> Tuple[bytes, bool]:
     """
     Enhance raw package photo bytes for maximum OCR text detection accuracy.
 
     Pipeline:
-    1. Decode raw bytes to BGR image matrix
+    1. Decode raw bytes to BGR image matrix & downscale if oversized
     2. Auto-deskew orientation
     3. CLAHE (Contrast Limited Adaptive Histogram Equalization)
     4. Unsharp Masking / Laplacian sharpening for small fonts (MRP, Mfg Date)
-    5. Encode back to PNG bytes
+    5. Encode back to optimized bytes
 
     Returns:
         Tuple of (enhanced_image_bytes, was_enhanced_boolean)
@@ -65,6 +75,9 @@ def enhance_image_for_ocr(image_bytes: bytes) -> Tuple[bytes, bool]:
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if img is None:
             return image_bytes, False
+
+        # Step 0: Downscale if image exceeds max dimension to avoid memory spike
+        img = _downscale_if_large(img, max_dim=1600)
 
         # Step 1: Auto Deskew
         img = auto_deskew(img)

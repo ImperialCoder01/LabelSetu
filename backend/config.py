@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     SUPABASE_JWT_SECRET: str = ""
 
     # OCR & AI
-    OCR_PROVIDER: str = "local"  # 'local' (EasyOCR) or 'cloud' (OCR.space)
+    OCR_PROVIDER: str = "cloud"  # 'local' (EasyOCR) or 'cloud' (OCR.space)
     OCR_API_KEY: str = ""          # OCR.space API key (only needed when OCR_PROVIDER=cloud)
     GROQ_API_KEY: str = ""         # Groq LLM API Key (optional for Llama 3 70B AI label analysis)
 

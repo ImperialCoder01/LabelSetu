@@ -137,6 +137,10 @@ async def scan(
                 "extracted_entities": ocr_res.get("extracted_entities", {}),
                 "extracted_entities_detailed": detailed_entities,
             })
+            del b_bytes
+
+    import gc
+    gc.collect()
 
     t_ocr_ms = round((time.perf_counter() - t_ocr_start) * 1000, 2)
 
