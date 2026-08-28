@@ -340,7 +340,7 @@ function ResultsScreen({ report, onScanAgain }) {
                         {icon} {evStatus}
                       </span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-gray-200 text-gray-700">
-                        Provenance: IMAGE
+                        Provenance: {field.source || "IMAGE"}
                       </span>
                     </div>
                     <p className="text-xs text-gray-600 mt-1">{field.reason || field.description}</p>

@@ -318,6 +318,37 @@ class TestMultiImageEvidence(unittest.TestCase):
         coo_field2 = next(f for f in report2["fields"] if f["field_id"] == "country_of_origin")
         self.assertEqual(coo_field2["evidence_status"], "CONFLICTING_EVIDENCE")
 
+    def test_three_panel_complementary_evidence(self):
+        """Test merging Front + Back + Side panels: all evidence survives without false violations."""
+        front = {
+            "image_index": 1,
+            "filename": "front.jpg",
+            "raw_text": "Amul Butter 100g",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "FRONT_PANEL", "classification": "FRONT_PANEL"},
+            "extracted_entities": {"net_quantity": "100g"},
+        }
+        back = {
+            "image_index": 2,
+            "filename": "back.jpg",
+            "raw_text": "Manufactured by Gujarat Milk Federation. MRP Rs 56.00 Batch B102",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "BACK_DECLARATION_PANEL", "classification": "BACK_DECLARATION_PANEL"},
+            "extracted_entities": {"manufacturer_name_address": "Gujarat Milk Federation", "mrp": "56.00", "batch_no": "B102"},
+        }
+        side = {
+            "image_index": 3,
+            "filename": "side.jpg",
+            "raw_text": "Customer Care: 1800-200-0520 Country of Origin: India",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "SIDE_PANEL", "classification": "SIDE_PANEL"},
+            "extracted_entities": {"consumer_care": "1800-200-0520", "country_of_origin": "India"},
+        }
+        report = apply_multi_image_rules([front, back, side], self.rules)
+        self.assertIn("front.jpg", next(f for f in report["fields"] if f["field_id"] == "net_quantity")["matched_images"])
+        self.assertIn("back.jpg", next(f for f in report["fields"] if f["field_id"] == "mrp")["matched_images"])
+        self.assertIn("side.jpg", next(f for f in report["fields"] if f["field_id"] == "country_of_origin")["matched_images"])
+
 
 if __name__ == "__main__":
     unittest.main()
