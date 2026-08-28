@@ -67,7 +67,7 @@ def _canonicalize_field_value(field_id: str, val: Any) -> str:
     """
     Canonicalize extracted declaration values for safe multi-image conflict comparison.
     Normalizes whitespace, currency symbols, and date separators so minor formatting
-    differences (e.g. '400g' vs '400 g', 'Rs 28.00' vs '28.00') do not trigger false conflicts.
+    differences (e.g. '400g' vs '400 g', 'Rs 28.00' vs '28.00', 'DEC 2026' vs '12/2026') do not trigger false conflicts.
     """
     if val is None:
         return ""
@@ -75,8 +75,20 @@ def _canonicalize_field_value(field_id: str, val: Any) -> str:
     s_clean = re.sub(r"\s+", "", s)
     if field_id == "mrp":
         s_clean = re.sub(r"^(?:rs\.?|₹|inr)\s*", "", s_clean, flags=re.IGNORECASE)
-    elif field_id == "mfg_date":
+    elif field_id in ("mfg_date", "manufacturing_date", "expiry_date"):
         s_clean = s_clean.replace("-", "/")
+        month_map = {
+            "jan": "01", "january": "01", "feb": "02", "february": "02",
+            "mar": "03", "march": "03", "apr": "04", "april": "04",
+            "may": "05", "jun": "06", "june": "06", "jul": "07", "july": "07",
+            "aug": "08", "august": "08", "sep": "09", "september": "09",
+            "oct": "10", "october": "10", "nov": "11", "november": "11",
+            "dec": "12", "december": "12"
+        }
+        for m_name, m_num in month_map.items():
+            if m_name in s_clean:
+                s_clean = re.sub(m_name, m_num + "/", s_clean).replace("//", "/")
+                break
     return s_clean
 
 

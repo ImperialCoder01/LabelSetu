@@ -64,6 +64,41 @@ Net Content: 200ml"""
         self.assertEqual(extracted["consumer_care"], "care@nivea.com")
         self.assertEqual(extracted["net_quantity"], "200ml")
 
+    def test_textual_mfg_date_formats(self):
+        """Test textual month abbreviations and full month names for manufacturing date."""
+        cases = [
+            ("Mfg: DEC 2026", "DEC 2026"),
+            ("Mfg: DEC-2026", "DEC 2026"),
+            ("Packed: AUG 2026", "AUG 2026"),
+            ("Packed on: AUG-2026", "AUG 2026"),
+            ("Manufactured: DECEMBER 2026", "DECEMBER 2026"),
+            ("Pkd: 15/08/2026", "15/08/2026"),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                res = extract_entities_from_text(text)
+                self.assertEqual(res["mfg_date"], expected)
+
+    def test_best_before_expiry_calculation(self):
+        """Test explicit Best Before X Months calculation from manufacturing date."""
+        # DEC 2026 + 12 months = DEC 2027
+        t1 = "Mfg: DEC 2026\nBest Before 12 Months"
+        r1 = extract_entities_from_text(t1)
+        self.assertEqual(r1["mfg_date"], "DEC 2026")
+        self.assertEqual(r1["expiry_date"], "DEC 2027")
+
+        # AUG 2026 + 6 months = FEB 2027 (Year boundary)
+        t2 = "Mfg: AUG 2026\nBest Before 6 Months"
+        r2 = extract_entities_from_text(t2)
+        self.assertEqual(r2["mfg_date"], "AUG 2026")
+        self.assertEqual(r2["expiry_date"], "FEB 2027")
+
+    def test_arbitrary_number_expiry_protection(self):
+        """Verify arbitrary numbers (Net Qty 400g, MRP 200, Batch 123456, USP 2.60/ml) do NOT generate fake expiry dates."""
+        text = "Net Qty 400 g\nMRP ₹ 200\nBatch 123456\nUSP ₹ 2.60/ml"
+        res = extract_entities_from_text(text)
+        self.assertIsNone(res["expiry_date"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -260,6 +260,28 @@ class TestMultiImageEvidence(unittest.TestCase):
         mrp_field = next(f for f in report["fields"] if f["field_id"] == "mrp")
         self.assertEqual(mrp_field["evidence_status"], "CONFIRMED_PRESENT")
 
+    def test_equivalent_date_formatting_not_conflicting(self):
+        """Verify 'Mfg: DEC 2026' vs 'Mfg: 12/2026' is recognized as matching date evidence, not CONFLICTING_EVIDENCE."""
+        img1 = {
+            "image_index": 1,
+            "filename": "front.jpg",
+            "raw_text": "Tata Salt Iodised Mfg: DEC 2026",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "FRONT_PANEL", "classification": "FRONT_PANEL"},
+            "extracted_entities": {"mfg_date": "DEC 2026"},
+        }
+        img2 = {
+            "image_index": 2,
+            "filename": "back.jpg",
+            "raw_text": "Manufactured by: Tata Ltd Mfg: 12/2026",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "BACK_DECLARATION_PANEL", "classification": "BACK_DECLARATION_PANEL"},
+            "extracted_entities": {"mfg_date": "12/2026"},
+        }
+        report = apply_multi_image_rules([img1, img2], self.rules)
+        mfg_field = next(f for f in report["fields"] if f["field_id"] == "manufacturing_date")
+        self.assertEqual(mfg_field["evidence_status"], "CONFIRMED_PRESENT")
+
 
 if __name__ == "__main__":
     unittest.main()

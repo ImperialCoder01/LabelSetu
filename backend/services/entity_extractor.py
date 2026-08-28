@@ -94,6 +94,110 @@ def _extract_net_quantity(text: str) -> Optional[str]:
     return None
 
 
+MONTH_MAP = {
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12
+}
+
+INV_MONTH_MAP = {
+    1: "JAN", 2: "FEB", 3: "MAR", 4: "APR", 5: "MAY", 6: "JUN",
+    7: "JUL", 8: "AUG", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC"
+}
+
+
+def _extract_mfg_date(text: str) -> Optional[str]:
+    """
+    Extract manufacturing/packaging date from OCR text.
+    Supports textual month abbreviations (e.g., 'Mfg: DEC 2026', 'Packed on: AUG-2026')
+    as well as numeric formats (e.g., 'Mfg: 12/2026', '15/08/2026').
+    Requires explicit manufacturing context prefixes.
+    """
+    if not text or not text.strip():
+        return None
+
+    # Priority 1: Textual Month (e.g., Mfg: DEC 2026, Manufactured: DECEMBER 2026, Packed: AUG-2026)
+    textual_pattern = r"(?:mfg|mfd|manufactured|pkd|packed|pkg|dop)\s*(?:date|on)?\s*[:\.-]?\s*\b([a-zA-Z]{3,9})[\s\.-]+(\d{2,4})\b"
+    match = re.search(textual_pattern, text, re.IGNORECASE)
+    if match:
+        month_str, year_str = match.group(1).strip(), match.group(2).strip()
+        if month_str.lower() in MONTH_MAP:
+            return f"{month_str.upper()} {year_str}"
+
+    # Priority 2: Numeric Date (e.g., Mfg: 12/2026, Pkd: 15/08/2026)
+    numeric_pattern = r"(?:mfg|mfd|manufactured|pkd|packed|pkg|dop)\s*(?:date|on)?\s*[:\.-]?\s*\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{2,4})\b"
+    match = re.search(numeric_pattern, text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+
+    return None
+
+
+def _extract_expiry_date(text: str, mfg_date: Optional[str] = None) -> Tuple[Optional[str], bool]:
+    """
+    Extract expiry date directly from OCR text or calculate from explicit 'Best Before X Months' statement.
+    Returns Tuple[expiry_date_str, is_derived_boolean].
+    """
+    if not text or not text.strip():
+        return None, False
+
+    # Direct Expiry Pattern (Textual or Numeric, e.g. Exp: DEC 2027, Best Before 15/08/2027)
+    direct_textual = r"(?:exp|expiry|best\s*before|use\s*by)\s*(?:date|on)?\s*[:\.-]?\s*\b([a-zA-Z]{3,9})[\s\.-]+(\d{2,4})\b"
+    match = re.search(direct_textual, text, re.IGNORECASE)
+    if match:
+        month_str, year_str = match.group(1).strip(), match.group(2).strip()
+        if month_str.lower() in MONTH_MAP:
+            return f"{month_str.upper()} {year_str}", False
+
+    direct_numeric = r"(?:exp|expiry|best\s*before|use\s*by)\s*(?:date|on)?\s*[:\.-]?\s*\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{2,4})\b"
+    match = re.search(direct_numeric, text, re.IGNORECASE)
+    if match:
+        return match.group(1).strip(), False
+
+    # Duration Calculation Pattern (e.g., Best Before 12 Months, Use within 6 months)
+    # Strictly requires 'best before' / 'use by' / 'expiry' context
+    duration_pattern = r"(?:best\s*before|use\s*by|use\s*within|expiry\s*within)\s*(?:within|of)?\s*(\d{1,2})\s*months?\b"
+    match = re.search(duration_pattern, text, re.IGNORECASE)
+    if match and mfg_date:
+        months_to_add = int(match.group(1))
+        # Check textual mfg_date (e.g., DEC 2026)
+        mfg_match = re.match(r"^([a-zA-Z]{3,9})\s+(\d{4})$", mfg_date.strip())
+        if mfg_match and mfg_match.group(1).lower() in MONTH_MAP:
+            start_m = MONTH_MAP[mfg_match.group(1).lower()]
+            start_y = int(mfg_match.group(2))
+            total_m = (start_m - 1) + months_to_add
+            new_m = (total_m % 12) + 1
+            new_y = start_y + (total_m // 12)
+            month_abbr = INV_MONTH_MAP.get(new_m, f"{new_m:02d}")
+            return f"{month_abbr} {new_y}", True
+
+        # Check numeric mfg_date (e.g., 12/2026 or 15/08/2026)
+        num_parts = [p for p in re.split(r"[/-]", mfg_date.strip()) if p.isdigit()]
+        if len(num_parts) >= 2:
+            try:
+                start_m = int(num_parts[0]) if len(num_parts) == 2 else int(num_parts[1])
+                start_y = int(num_parts[-1])
+                if 1 <= start_m <= 12 and start_y > 1000:
+                    total_m = (start_m - 1) + months_to_add
+                    new_m = (total_m % 12) + 1
+                    new_y = start_y + (total_m // 12)
+                    month_abbr = INV_MONTH_MAP.get(new_m, f"{new_m:02d}")
+                    return f"{month_abbr} {new_y}", True
+            except Exception:
+                pass
+
+    return None, False
+
+
 def extract_entities_with_evidence(raw_text: str, normalized_text: Optional[str] = None) -> Dict[str, Any]:
     """
     Extract structured entities with complete evidence tracing:
@@ -137,9 +241,13 @@ def extract_entities_with_evidence(raw_text: str, normalized_text: Optional[str]
 
         normalization_applied = raw_snippet != norm_snippet if raw_snippet and norm_snippet else False
 
+        source = "IMAGE"
+        if key == "expiry_date" and "best before" in norm_text.lower() and not any(val.lower() in l.lower() for l in raw_lines):
+            source = "INFERENCE"
+
         detailed[key] = {
             "value": val,
-            "source": "IMAGE",
+            "source": source,
             "raw_snippet": raw_snippet or f"Text contains '{val}'",
             "normalized_snippet": norm_snippet or raw_snippet or f"Text contains '{val}'",
             "confidence": 0.95 if len(val) > 2 else 0.85,
@@ -180,8 +288,6 @@ def extract_entities_from_text(text: str) -> Dict[str, Any]:
     default_patterns = {
         "mrp": [r"(?:mrp|max\s*retail\s*price|price)\s*[:\.-]?\s*(?:rs\.?|₹)?\s*([\d\.,]+)"],
         "unit_sale_price": [r"(?:unit\s*sale\s*price|unit\s*price)\s*[:\.-]?\s*([^\n,]+)"],
-        "mfg_date": [r"(?:mfg|manufactured|pkd|packed|dop)\s*(?:date)?\s*[:\.-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{2,4})"],
-        "expiry_date": [r"(?:exp|expiry|best\s*before|use\s*by)\s*(?:date)?\s*[:\.-]?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{2,4}|\d+\s*months?)"],
         "net_quantity": [r"(?:net\s*wt|net\s*weight|net\s*qty|net\s*quantity|net\s*vol)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|gm))"],
         "fssai_lic": [r"(?:fssai|lic)\s*(?:no\.?|num)?\s*[:\.-]?\s*(\d{14})"],
         "country_of_origin": [r"(?:country\s*of\s*origin|made\s*in|product\s*of)\s*[:\.-]?\s*([a-zA-Z]+)"],
@@ -190,9 +296,19 @@ def extract_entities_from_text(text: str) -> Dict[str, Any]:
 
     active_patterns = patterns if patterns else default_patterns
 
+    # 1. Custom Extractor for Net Quantity
+    extracted["net_quantity"] = _extract_net_quantity(text)
+
+    # 2. Custom Extractor for Manufacturing Date
+    extracted["mfg_date"] = _extract_mfg_date(text)
+
+    # 3. Custom Extractor for Expiry Date (Direct + Best Before calculation)
+    exp_val, _ = _extract_expiry_date(text, extracted["mfg_date"])
+    extracted["expiry_date"] = exp_val
+
+    # 4. Extract remaining entities
     for entity_key, regex_list in active_patterns.items():
-        if entity_key == "net_quantity":
-            extracted["net_quantity"] = _extract_net_quantity(text)
+        if entity_key in ("net_quantity", "mfg_date", "expiry_date"):
             continue
 
         for pattern in regex_list:
