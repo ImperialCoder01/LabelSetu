@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import { useTranslation } from "react-i18next";
 import BarcodeScanner from "../components/BarcodeScanner";
+import CameraCaptureModal from "../components/CameraCaptureModal";
 
 const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu.onrender.com").replace(/\/$/, "");
 
@@ -97,6 +98,7 @@ function UnitPriceComparator() {
 function UploadScreen({ onFilesSelected, selectedFiles, onRemoveFile }) {
   const { t } = useTranslation();
   const [dragOver, setDragOver] = useState(false);
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
   const fileRef = useRef(null);
   const cameraRef = useRef(null);
 
@@ -105,6 +107,25 @@ function UploadScreen({ onFilesSelected, selectedFiles, onRemoveFile }) {
     const valid = Array.from(files).filter((f) => f.type.startsWith("image/"));
     onFilesSelected(valid);
   }, [onFilesSelected]);
+
+  const handleTakePhotoClick = () => {
+    const isMobile =
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (window.matchMedia && window.matchMedia("(pointer: coarse)").matches && typeof window.ontouchstart !== "undefined");
+
+    if (isMobile && cameraRef.current) {
+      cameraRef.current.click();
+    } else if (navigator?.mediaDevices?.getUserMedia) {
+      setCameraModalOpen(true);
+    } else if (cameraRef.current) {
+      cameraRef.current.click();
+    }
+  };
+
+  const handleCameraCapture = (capturedFile) => {
+    handleFiles([capturedFile]);
+    setCameraModalOpen(false);
+  };
 
   const handleInputChange = (e) => handleFiles(e.target.files);
   const handleDrop = (e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); };
@@ -221,13 +242,24 @@ function UploadScreen({ onFilesSelected, selectedFiles, onRemoveFile }) {
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleInputChange} className="hidden" id="camera-capture" />
 
       <div className="flex gap-3 pt-1">
-        <label htmlFor="camera-capture" className="btn-secondary flex-1 cursor-pointer">
+        <button
+          type="button"
+          onClick={handleTakePhotoClick}
+          className="btn-secondary flex-1 cursor-pointer"
+        >
           <span>📷</span> Take Photo
-        </label>
+        </button>
         <label htmlFor="file-upload" className="btn-secondary flex-1 cursor-pointer">
           <span>📁</span> {t("consumer.browseFiles")}
         </label>
       </div>
+
+      <CameraCaptureModal
+        isOpen={cameraModalOpen}
+        onCapture={handleCameraCapture}
+        onClose={() => setCameraModalOpen(false)}
+        onFallbackUpload={() => fileRef.current?.click()}
+      />
     </div>
   );
 }

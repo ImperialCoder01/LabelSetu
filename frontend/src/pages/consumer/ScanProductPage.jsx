@@ -4,6 +4,7 @@ import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
 import BarcodeScanner from "../../components/BarcodeScanner";
 import AppDrawer from "../../components/AppDrawer";
+import CameraCaptureModal from "../../components/CameraCaptureModal";
 
 const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu.onrender.com").replace(/\/$/, "");
 
@@ -90,6 +91,29 @@ export default function ScanProductPage() {
 
   const fileRef = useRef(null);
   const cameraRef = useRef(null);
+  const [cameraModalOpen, setCameraModalOpen] = useState(false);
+
+  const handleTakePhotoClick = () => {
+    const isMobile =
+      /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+      (window.matchMedia && window.matchMedia("(pointer: coarse)").matches && typeof window.ontouchstart !== "undefined");
+
+    if (isMobile && cameraRef.current) {
+      cameraRef.current.click();
+    } else if (navigator?.mediaDevices?.getUserMedia) {
+      setCameraModalOpen(true);
+    } else if (cameraRef.current) {
+      cameraRef.current.click();
+    }
+  };
+
+  const handleCameraCapture = (capturedFile) => {
+    setSelectedFiles((prev) => {
+      const combined = [...prev, capturedFile];
+      return combined.slice(0, 5);
+    });
+    setCameraModalOpen(false);
+  };
 
   const handleInputChange = (e) => {
     if (!e.target.files?.length) return;
@@ -376,9 +400,13 @@ export default function ScanProductPage() {
           <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleInputChange} className="hidden" id="scan-camera-input" />
 
           <div className="flex flex-wrap gap-3">
-            <label htmlFor="scan-camera-input" className="btn-secondary flex-1 cursor-pointer">
+            <button
+              type="button"
+              onClick={handleTakePhotoClick}
+              className="btn-secondary flex-1 cursor-pointer"
+            >
               <span>📸</span> Take Photo
-            </label>
+            </button>
             <label htmlFor="scan-file-input" className="btn-secondary flex-1 cursor-pointer">
               <span>📁</span> Browse Files
             </label>
@@ -390,6 +418,13 @@ export default function ScanProductPage() {
               <span>🔲</span> {capturedBarcode ? `Barcode: ${capturedBarcode}` : "Scan Barcode"}
             </button>
           </div>
+
+          <CameraCaptureModal
+            isOpen={cameraModalOpen}
+            onCapture={handleCameraCapture}
+            onClose={() => setCameraModalOpen(false)}
+            onFallbackUpload={() => fileRef.current?.click()}
+          />
 
           {scannerOpen && (
             <div className="card-slate p-4 border-slate-300">
