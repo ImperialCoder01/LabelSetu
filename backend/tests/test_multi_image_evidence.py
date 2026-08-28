@@ -181,6 +181,45 @@ class TestMultiImageEvidence(unittest.TestCase):
         report = apply_multi_image_rules([screenshot_img], self.rules)
         self.assertEqual(report["compliance_assessment"], "SCREENSHOT")
 
+    def test_conflicting_mrp_evidence(self):
+        """Verify contradictory MRP values produce CONFLICTING_EVIDENCE status."""
+        img1 = {
+            "image_index": 1,
+            "filename": "label1.jpg",
+            "raw_text": "Manufactured by: Tata Ltd Net Wt: 1kg MRP: Rs 520.00",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "BACK_DECLARATION_PANEL", "classification": "BACK_DECLARATION_PANEL"},
+            "extracted_entities": {"mrp": "520.00"},
+        }
+        img2 = {
+            "image_index": 2,
+            "filename": "label2.jpg",
+            "raw_text": "Manufactured by: Tata Ltd Net Wt: 1kg MRP: Rs 550.00",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "BACK_DECLARATION_PANEL", "classification": "BACK_DECLARATION_PANEL"},
+            "extracted_entities": {"mrp": "550.00"},
+        }
+        report = apply_multi_image_rules([img1, img2], self.rules)
+        mrp_field = next(f for f in report["fields"] if f["field_id"] == "mrp")
+        self.assertEqual(mrp_field["evidence_status"], "CONFLICTING_EVIDENCE")
+        self.assertEqual(mrp_field["score_impact"], 0)
+
+    def test_mop_to_mrp_normalization(self):
+        """Verify MOP OCR typo normalization is performed safely."""
+        from services.ocr_service import normalize_ocr_text_contextual
+        raw = "MOP Rs 520.00 Mktd by Tata Consumer Products"
+        normalized = normalize_ocr_text_contextual(raw)
+        self.assertIn("MRP Rs 520.00", normalized)
+        self.assertIn("Marketed by", normalized)
+
+    def test_net_quantity_usp_isolation(self):
+        """Verify Net Quantity is never corrupted by USP price per unit."""
+        from services.entity_extractor import extract_entities_from_text
+        text = "USP ₹ 2.60/ml\nNet Content (when packed): 200ml (202.2g)"
+        extracted = extract_entities_from_text(text)
+        self.assertEqual(extracted["net_quantity"], "200ml (202.2g)")
+        self.assertNotEqual(extracted["net_quantity"], "2.601ml")
+
 
 if __name__ == "__main__":
     unittest.main()

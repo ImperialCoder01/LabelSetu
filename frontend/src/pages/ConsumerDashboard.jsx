@@ -95,11 +95,23 @@ function UploadScreen({ onFilesSelected, selectedFiles, onRemoveFile }) {
   const handleDrop = (e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); };
 
   return (
-    <div className="card">
-      <div className="flex items-center justify-between mb-4">
+    <div className="card space-y-4">
+      <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900">
+        <p className="font-bold mb-1 flex items-center gap-1.5">
+          <span>📸</span> Proactive Photo Guidance for 100% Legal Verification:
+        </p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+          <div className="bg-white/80 p-2 rounded border border-blue-100 font-medium">1. Front Panel (Brand & Product Name)</div>
+          <div className="bg-white/80 p-2 rounded border border-blue-100 font-medium">2. Back Panel (MRP, Net Wt, Mfg Date)</div>
+          <div className="bg-white/80 p-2 rounded border border-blue-100 font-medium">3. Side Panel (Consumer Care & Address)</div>
+          <div className="bg-white/80 p-2 rounded border border-blue-100 font-medium">4. Bottom Base (Batch / Expiry)</div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Scan Product Label(s)</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Upload one or multiple photos (e.g. Front + Back packaging panels)</p>
+          <h2 className="text-lg font-semibold text-gray-900">Scan Product Packaging Photo(s)</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Upload single photo or multi-panel photos of the same package</p>
         </div>
         {selectedFiles.length > 0 && (
           <span className="text-xs font-bold px-2.5 py-1 rounded bg-blue-100 text-blue-800">
@@ -109,7 +121,7 @@ function UploadScreen({ onFilesSelected, selectedFiles, onRemoveFile }) {
       </div>
 
       {selectedFiles.length > 0 ? (
-        <div className="space-y-3 mb-4">
+        <div className="space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {selectedFiles.map((file, idx) => (
               <div key={idx} className="relative rounded-lg border border-gray-200 bg-white p-2 flex flex-col items-center">
@@ -137,7 +149,7 @@ function UploadScreen({ onFilesSelected, selectedFiles, onRemoveFile }) {
           <div className="mx-auto mb-3 w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center">
             <svg className="w-7 h-7 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>
           </div>
-          <p className="text-gray-600 font-medium">Click or Drag & Drop Product Photo(s)</p>
+          <p className="text-gray-600 font-medium">Click or Drag & Drop Product Packaging Photo(s)</p>
           <p className="text-xs text-gray-400 mt-1">Select 1 or multiple photos (PNG, JPEG, WebP)</p>
         </div>
       )}
@@ -153,11 +165,11 @@ function UploadScreen({ onFilesSelected, selectedFiles, onRemoveFile }) {
 }
 
 function ProcessingScreen() {
-  const { t } = useTranslation();
   const steps = [
     { label: "Uploading & Validating Image(s)...", icon: "⬇️" },
-    { label: "Running Preprocessing & OCR...", icon: "🔍" },
-    { label: "Classifying Package Panels...", icon: "📦" },
+    { label: "Running OpenCV Enhancement & Dual OCR...", icon: "🔍" },
+    { label: "Classifying Package Panels & Quality...", icon: "📦" },
+    { label: "Checking Same-Package Identity...", icon: "🆔" },
     { label: "Aggregating Multi-Image Evidence...", icon: "⚖️" },
     { label: "Computing Legal Metrology Score...", icon: "✨" },
   ];
@@ -170,7 +182,7 @@ function ProcessingScreen() {
       <p className="text-lg font-semibold text-gray-900 mb-6">Analyzing Package Evidence...</p>
       <div className="space-y-3 w-full max-w-xs">
         {steps.map((step, i) => (
-          <div key={i} className="flex items-center gap-3 text-sm text-gray-500 animate-pulse" style={{ animationDelay: (i * 300) + "ms" }}>
+          <div key={i} className="flex items-center gap-3 text-sm text-gray-500 animate-pulse" style={{ animationDelay: (i * 250) + "ms" }}>
             <span className="text-base">{step.icon}</span>
             <span>{step.label}</span>
           </div>
@@ -214,8 +226,10 @@ function BarcodeLookupPanel({ barcodeData, mismatch }) {
 
 function ResultsScreen({ report, onScanAgain }) {
   const { t } = useTranslation();
+  const [showNormalizedOcr, setShowNormalizedOcr] = useState(false);
+
   if (!report) return null;
-  const { compliance, ocr, barcode_lookup, manufacturer_mismatch, quality_info, classification, image_details } = report;
+  const { compliance, ocr, barcode_lookup, manufacturer_mismatch, quality_info, classification, image_details, duplicate_count } = report;
   const score = compliance.overall_score;
   const scoreColor = score >= 80 ? "text-green-600" : score >= 50 ? "text-yellow-500" : "text-red-600";
   const scoreBg = score >= 80 ? "bg-green-50" : score >= 50 ? "bg-yellow-50" : "bg-red-50";
@@ -225,6 +239,24 @@ function ResultsScreen({ report, onScanAgain }) {
 
   return (
     <div className="space-y-6">
+      {/* Package Identity & Duplicate Alerts */}
+      {compliance.package_identity && !compliance.package_identity.match && (
+        <div className="p-4 bg-orange-50 border-2 border-orange-300 rounded-xl flex items-start gap-3">
+          <span className="text-2xl">🚫</span>
+          <div>
+            <h3 className="text-base font-bold text-orange-800">Package Identity Mismatch</h3>
+            <p className="text-xs text-orange-700 mt-1">{compliance.package_identity.detail}</p>
+          </div>
+        </div>
+      )}
+
+      {duplicate_count > 0 && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 flex items-center gap-2">
+          <span>ℹ️</span>
+          <span>{duplicate_count} duplicate image upload(s) detected and safely deduplicated.</span>
+        </div>
+      )}
+
       {/* Evidence Coverage & Package Panels Header Card */}
       <div className="card bg-blue-50/50 border border-blue-200">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
@@ -264,31 +296,46 @@ function ResultsScreen({ report, onScanAgain }) {
         <p className="text-xs text-gray-400 mt-2">Passed Declarations: {compliance.passed}/{compliance.total_fields}</p>
       </div>
 
-      {/* Multi-Image Evidence Checklist */}
+      {/* Multi-Image Granular Evidence Checklist */}
       <div className="card">
-        <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Multi-Image Legal Metrology Evidence</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Multi-Image Legal Metrology Evidence</h3>
+          <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+            Provenanced Evidence Engine
+          </span>
+        </div>
         <div className="space-y-3">
           {compliance.fields.map((field) => {
             const evStatus = field.evidence_status || (field.status === "pass" ? "CONFIRMED_PRESENT" : "CONFIRMED_MISSING");
             let badgeBg = "bg-green-100 text-green-800";
             let icon = "✓";
             if (evStatus === "CONFIRMED_MISSING") { badgeBg = "bg-red-100 text-red-800"; icon = "✗"; }
-            else if (evStatus === "NOT_VISIBLE") { badgeBg = "bg-blue-100 text-blue-800"; icon = "👁️"; }
-            else if (evStatus === "UNREADABLE") { badgeBg = "bg-yellow-100 text-yellow-800"; icon = "⚠️"; }
-            else if (evStatus === "NOT_DETECTED") { badgeBg = "bg-gray-100 text-gray-700"; icon = "🔍"; }
+            else if (evStatus === "NOT_VISIBLE") { badgeBg = "bg-blue-100 text-blue-800"; icon = "○"; }
+            else if (evStatus === "UNREADABLE") { badgeBg = "bg-yellow-100 text-yellow-800"; icon = "!"; }
+            else if (evStatus === "NOT_DETECTED") { badgeBg = "bg-gray-100 text-gray-700"; icon = "?"; }
             else if (evStatus === "CONFLICTING_EVIDENCE") { badgeBg = "bg-purple-100 text-purple-800"; icon = "⚡"; }
 
             return (
               <div key={field.field_id} className={`p-3.5 rounded-lg border transition-colors ${evStatus === "CONFIRMED_PRESENT" ? "bg-green-50/50 border-green-200" : evStatus === "CONFIRMED_MISSING" ? "bg-red-50/50 border-red-200" : "bg-gray-50 border-gray-200"}`}>
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-bold text-gray-900">{field.field_name}</span>
                       <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${badgeBg}`}>
                         {icon} {evStatus}
                       </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-gray-200 text-gray-700">
+                        Provenance: IMAGE
+                      </span>
                     </div>
                     <p className="text-xs text-gray-600 mt-1">{field.reason || field.description}</p>
+
+                    {field.action && (
+                      <p className="text-xs text-blue-800 mt-1 font-medium bg-blue-50/80 p-1.5 rounded border border-blue-100">
+                        💡 <span className="font-bold">Guidance:</span> {field.action}
+                      </p>
+                    )}
+
                     {field.extracted_value && (
                       <p className="text-xs font-mono font-bold text-green-800 mt-1 bg-green-100/70 inline-block px-2 py-0.5 rounded">
                         Extracted Value: {field.extracted_value}
@@ -314,112 +361,42 @@ function ResultsScreen({ report, onScanAgain }) {
         </div>
       )}
       <BarcodeLookupPanel barcodeData={barcode_lookup} mismatch={manufacturer_mismatch} />
-      {/* Radar chart */}
-      {compliance.fields.length > 0 && (
-        <div className="card">
-          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Field Compliance Radar</h3>
-          <div style={{ height: 340 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={compliance.fields.map((f) => ({ field: f.field_name, value: f.status === "pass" ? 100 : 0, status: f.status }))} cx="50%" cy="50%" outerRadius="72%">
-                <PolarGrid stroke="#e5e7eb" />
-                <PolarAngleAxis
-                  dataKey="field"
-                  tick={({ x, y, payload }) => {
-                    const parts = payload.value.split(" ");
-                    const lines = [];
-                    for (let i = 0; i < parts.length; i += 3) lines.push(parts.slice(i, i + 3).join(" "));
-                    return (
-                      <text x={x} y={y} textAnchor="middle" dominantBaseline="central" className="text-[10px] fill-gray-600">
-                        {lines.map((line, li) => (
-                          <tspan key={li} x={x} dy={li === 0 ? 0 : 12}>{line}</tspan>
-                        ))}
-                      </text>
-                    );
-                  }}
-                />
-                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                <Radar name="Compliance" dataKey="value" stroke="#2563eb" fill="#2563eb" fillOpacity={0.25} strokeWidth={2} />
-                <Tooltip
-                  formatter={(val) => [val === 100 ? "Pass ✓" : "Fail ✗", "Status"]}
-                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                />
-              </RadarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-      <div className="card">          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">{t("consumer.complianceChecklist")}</h3>
-        <div className="space-y-3">
-          {compliance.fields.map((field) => (
-            <div key={field.field_id} className={"flex items-start gap-3 p-3 rounded-lg transition-colors " + (field.status === "pass" ? "bg-green-50" : "bg-red-50")}>
-              <div className={"mt-0.5 w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 " + (field.status === "pass" ? "bg-green-500 text-white" : "bg-red-500 text-white")}>
-                {field.status === "pass" ? <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg> : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-900">{field.field_name}</span>
-                  <span className={"text-xs px-1.5 py-0.5 rounded font-medium " + (field.severity === "Critical" ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-600")}>{field.severity}</span>
-                </div>
-                <p className="text-xs text-gray-500 mt-0.5">{field.description}</p>
-                {field.matched_keyword && <span className="inline-block mt-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">Found: "{field.matched_keyword}"</span>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-      {ocr?.extracted_entities && Object.values(ocr.extracted_entities).some(Boolean) && (
+
+      {/* Raw vs Normalized OCR Separation Panel */}
+      {ocr?.full_text && (
         <div className="card">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
-              AI Detected Package Entities
+              OCR Engine Text Extraction
             </h3>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
-              Custom Model v1.0
-            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowNormalizedOcr(false)}
+                className={`text-xs px-2.5 py-1 rounded font-medium transition-colors ${!showNormalizedOcr ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+              >
+                Raw OCR Text
+              </button>
+              <button
+                onClick={() => setShowNormalizedOcr(true)}
+                className={`text-xs px-2.5 py-1 rounded font-medium transition-colors ${showNormalizedOcr ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+              >
+                Domain-Normalized OCR
+              </button>
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            {ocr.extracted_entities.mrp && (
-              <div className="bg-gray-50 p-2.5 rounded border border-gray-200">
-                <span className="font-semibold text-gray-500 block">MRP</span>
-                <span className="font-mono text-gray-900 font-bold">{ocr.extracted_entities.mrp}</span>
-              </div>
-            )}
-            {ocr.extracted_entities.net_quantity && (
-              <div className="bg-gray-50 p-2.5 rounded border border-gray-200">
-                <span className="font-semibold text-gray-500 block">Net Quantity</span>
-                <span className="font-mono text-gray-900 font-bold">{ocr.extracted_entities.net_quantity}</span>
-              </div>
-            )}
-            {ocr.extracted_entities.mfg_date && (
-              <div className="bg-gray-50 p-2.5 rounded border border-gray-200">
-                <span className="font-semibold text-gray-500 block">Mfg / Pkd Date</span>
-                <span className="font-mono text-gray-900 font-bold">{ocr.extracted_entities.mfg_date}</span>
-              </div>
-            )}
-            {ocr.extracted_entities.unit_sale_price && (
-              <div className="bg-gray-50 p-2.5 rounded border border-gray-200">
-                <span className="font-semibold text-gray-500 block">Unit Sale Price</span>
-                <span className="font-mono text-gray-900 font-bold">{ocr.extracted_entities.unit_sale_price}</span>
-              </div>
-            )}
-            {ocr.extracted_entities.fssai_lic && (
-              <div className="bg-gray-50 p-2.5 rounded border border-gray-200 col-span-2">
-                <span className="font-semibold text-gray-500 block">FSSAI License No.</span>
-                <span className="font-mono text-blue-700 font-bold">{ocr.extracted_entities.fssai_lic}</span>
-              </div>
-            )}
-            {ocr.extracted_entities.country_of_origin && (
-              <div className="bg-gray-50 p-2.5 rounded border border-gray-200">
-                <span className="font-semibold text-gray-500 block">Country of Origin</span>
-                <span className="font-mono text-gray-900 font-bold">{ocr.extracted_entities.country_of_origin}</span>
-              </div>
-            )}
-          </div>
+
+          <p className="text-xs text-gray-500 mb-2">
+            {showNormalizedOcr
+              ? "Domain-Normalized OCR applies conservative packaging corrections (e.g. MOP → MRP) without mutating raw OCR."
+              : "Raw OCR Text contains exact unmodified characters extracted directly from image pixels."}
+          </p>
+
+          <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-4 border border-gray-200 whitespace-pre-wrap max-h-48 overflow-y-auto font-mono">
+            {showNormalizedOcr ? (ocr.normalized_full_text || ocr.full_text) : ocr.full_text}
+          </p>
         </div>
       )}
-      {ocr?.full_text && (
-        <div className="card"><h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">{t("consumer.extractedText")}</h3><p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-4 border border-gray-200 whitespace-pre-wrap max-h-40 overflow-y-auto font-mono">{ocr.full_text}</p></div>
-      )}
+      
       <button onClick={onScanAgain} className="btn-primary w-full">{t("consumer.scanAnother")}</button>
     </div>
   );
