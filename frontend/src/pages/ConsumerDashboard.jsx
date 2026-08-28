@@ -237,6 +237,21 @@ function ResultsScreen({ report, onScanAgain }) {
   const dashLen = 2 * Math.PI * 52;
   const dashOff = 2 * Math.PI * 52 * (1 - score / 100);
 
+  const completeness = compliance.verification_completeness || "PARTIALLY_VERIFIED";
+  let completenessBadge = "Partially Verified";
+  let completenessDesc = "Some mandatory declarations require additional packaging panel photos for complete verification.";
+
+  if (completeness === "FULLY_VERIFIED") {
+    completenessBadge = "Fully Verified ✓";
+    completenessDesc = "All mandatory Legal Metrology declarations have been verified across uploaded photos.";
+  } else if (completeness === "NO_CONFIRMED_VIOLATION") {
+    completenessBadge = "No Confirmed Violations Observed";
+    completenessDesc = "No confirmed legal violations were found in the uploaded photos, but additional panels are required for complete verification.";
+  } else if (completeness === "CONFIRMED_NON_COMPLIANCE") {
+    completenessBadge = "Confirmed Legal Violation(s)";
+    completenessDesc = "One or more mandatory declarations are physically missing from readable declaration panels.";
+  }
+
   return (
     <div className="space-y-6">
       {/* Package Identity & Duplicate Alerts */}
@@ -257,25 +272,21 @@ function ResultsScreen({ report, onScanAgain }) {
         </div>
       )}
 
-      {/* Evidence Coverage & Package Panels Header Card */}
+      {/* Verification Completeness & Evidence Coverage Card */}
       <div className="card bg-blue-50/50 border border-blue-200">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-900">
             Evidence Coverage: {compliance.evidence_coverage || `${compliance.passed}/${compliance.total_fields} assessable`}
           </span>
-          {compliance.captured_panels && (
-            <div className="flex gap-1.5 flex-wrap">
-              {compliance.captured_panels.map((p, idx) => (
-                <span key={idx} className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-200/70 text-blue-950">
-                  {p}
-                </span>
-              ))}
-            </div>
-          )}
+          <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-600 text-white">
+            Verification: {completenessBadge}
+          </span>
         </div>
 
+        <p className="text-xs text-blue-900 mt-1.5 font-medium">{completenessDesc}</p>
+
         {compliance.actions_required && compliance.actions_required.length > 0 && (
-          <div className="mt-2 p-2.5 bg-yellow-50 border border-yellow-200 rounded-lg text-xs text-yellow-900">
+          <div className="mt-3 p-2.5 bg-yellow-50 border border-yellow-200 rounded-lg text-xs text-yellow-900">
             <span className="font-bold">Required Action:</span> {compliance.actions_required.join(" ")}
           </div>
         )}
@@ -293,7 +304,11 @@ function ResultsScreen({ report, onScanAgain }) {
           </div>
         </div>
         <span className={"px-3 py-1 rounded-full text-sm font-semibold " + scoreBg + " " + scoreColor}>{scoreLabel}</span>
-        <p className="text-xs text-gray-400 mt-2">Passed Declarations: {compliance.passed}/{compliance.total_fields}</p>
+        <p className="text-xs text-gray-500 mt-2 text-center">
+          {score === 100 && compliance.passed < compliance.total_fields
+            ? "100/100 — No confirmed violations found in uploaded evidence"
+            : `Passed Declarations: ${compliance.passed}/${compliance.total_fields}`}
+        </p>
       </div>
 
       {/* Multi-Image Granular Evidence Checklist */}

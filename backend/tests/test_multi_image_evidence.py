@@ -220,6 +220,21 @@ class TestMultiImageEvidence(unittest.TestCase):
         self.assertEqual(extracted["net_quantity"], "200ml (202.2g)")
         self.assertNotEqual(extracted["net_quantity"], "2.601ml")
 
+    def test_verification_completeness_states(self):
+        """Verify verification_completeness state separation (NO_CONFIRMED_VIOLATION vs FULLY_VERIFIED)."""
+        front_img = {
+            "image_index": 1,
+            "filename": "front.jpg",
+            "raw_text": "Americana TOP Butter Cracker 60g",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "FRONT_PANEL", "classification": "FRONT_PANEL"},
+            "extracted_entities": {"net_quantity": "60g"},
+        }
+        report = apply_multi_image_rules([front_img], self.rules)
+        self.assertEqual(report["verification_completeness"], "NO_CONFIRMED_VIOLATION")
+        self.assertEqual(report["overall_score"], 100)
+        self.assertEqual(report["structured_coverage"]["manufacturing_date"], "NOT_VISIBLE")
+
 
 if __name__ == "__main__":
     unittest.main()

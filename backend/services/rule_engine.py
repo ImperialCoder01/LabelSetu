@@ -304,25 +304,44 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
 
     score = max(0, min(100, score))
 
-    # Overall Compliance Assessment
-    if has_screenshot:
+    # Overall Compliance Assessment & Verification Completeness
+    if not pkg_identity["match"]:
+        assessment = "PACKAGE_MISMATCH"
+        verification_completeness = "PACKAGE_MISMATCH"
+        overall_status = "fail"
+    elif has_screenshot:
         assessment = "SCREENSHOT"
+        verification_completeness = "SCREENSHOT"
         overall_status = "fail"
     elif has_unreadable_image and not has_readable_back_panel:
         assessment = "UNREADABLE_IMAGE"
+        verification_completeness = "UNREADABLE"
         overall_status = "fail"
-    elif "FRONT_PANEL" in captured_panels and not has_readable_back_panel and passed_count < total:
-        assessment = "FRONT_PANEL_ONLY"
-        overall_status = "partial"
     elif len(critical_failures) > 0 or len(minor_failures) > 0:
         assessment = "PARTIALLY_COMPLIANT" if passed_count > 0 else "NON_COMPLIANT"
+        verification_completeness = "CONFIRMED_NON_COMPLIANCE"
         overall_status = "partial" if passed_count > 0 else "fail"
-    elif passed_count == total:
+    elif passed_count == total and assessable_count == total:
         assessment = "COMPLIANT"
+        verification_completeness = "FULLY_VERIFIED"
         overall_status = "pass"
+    elif "FRONT_PANEL" in captured_panels and not has_readable_back_panel:
+        assessment = "FRONT_PANEL_ONLY"
+        verification_completeness = "NO_CONFIRMED_VIOLATION" if passed_count > 0 else "INSUFFICIENT_EVIDENCE"
+        overall_status = "partial"
+    elif passed_count > 0 and assessable_count < total:
+        assessment = "PARTIALLY_VERIFIED"
+        verification_completeness = "NO_CONFIRMED_VIOLATION"
+        overall_status = "partial"
     else:
         assessment = "INSUFFICIENT_EVIDENCE"
+        verification_completeness = "INSUFFICIENT_EVIDENCE"
         overall_status = "partial"
+
+    structured_coverage = {
+        f["field_id"]: ("ASSESSABLE" if f["evidence_status"] in ("CONFIRMED_PRESENT", "CONFIRMED_MISSING") else f["evidence_status"])
+        for f in field_results
+    }
 
     actions_required = []
     if not has_readable_back_panel and assessment != "SCREENSHOT":
@@ -334,7 +353,9 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
         "overall_score": score,
         "status": overall_status,
         "compliance_assessment": assessment,
+        "verification_completeness": verification_completeness,
         "evidence_coverage": f"{assessable_count}/{total} declarations assessable",
+        "structured_coverage": structured_coverage,
         "captured_panels": list(captured_panels),
         "total_fields": total,
         "passed": passed_count,
