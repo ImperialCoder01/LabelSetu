@@ -68,6 +68,35 @@ def lookup_barcode(barcode: str) -> dict | None:
     if not barcode:
         return None
 
+    # Tier 0: Check Authoritative Products Table
+    try:
+        from database import supabase
+        p_res = supabase.table("products").select("*").eq("barcode", barcode).execute()
+        if p_res.data and len(p_res.data) > 0:
+            p_row = p_res.data[0]
+            return {
+                "barcode": barcode,
+                "product_name": p_row.get("product_name", ""),
+                "brand": p_row.get("brand_name", ""),
+                "brand_tags": [p_row.get("brand_name", "").lower()],
+                "manufacturer": p_row.get("manufacturer_name_address", "") or p_row.get("brand_name", ""),
+                "manufacturing_places": p_row.get("manufacturer_name_address", ""),
+                "origins": p_row.get("country_of_origin", "India"),
+                "country_of_origin": p_row.get("country_of_origin", "India"),
+                "categories": p_row.get("category", ""),
+                "countries": "India",
+                "ingredients_text": p_row.get("ingredients", ""),
+                "labels": "Authoritative Registry",
+                "quantity": p_row.get("net_quantity", ""),
+                "net_quantity": p_row.get("net_quantity", ""),
+                "mrp": p_row.get("mrp"),
+                "status": p_row.get("status", "approved"),
+                "found": True,
+                "source": "authoritative_registry",
+            }
+    except Exception as p_exc:
+        logger.debug("Authoritative product barcode lookup skipped: %s", p_exc)
+
     # Tier 1: Check Local In-Memory Catalog JSON
     catalog = _get_local_catalog()
     if barcode in catalog:

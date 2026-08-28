@@ -33,7 +33,8 @@ class ReportCreate(BaseModel):
 # Consumer — submit a report
 # ---------------------------------------------------------------------------
 @router.post("", status_code=201)
-async def create_report(body: ReportCreate, user: dict = Depends(require_role("consumer", "brand"))):
+@router.post("/report", status_code=201)
+async def create_report(body: ReportCreate, user: dict = Depends(require_role("consumer", "brand", "regulator", "admin"))):
     """Submit a product report linked to a scan."""
     # Verify scan exists and belongs to user
     scan_result = (
@@ -69,7 +70,26 @@ async def create_report(body: ReportCreate, user: dict = Depends(require_role("c
     }
 
     result = supabase.table("product_reports").insert(report_data).execute()
-    return result.data[0] if result.data else {"success": True}
+    rep = result.data[0] if result.data else {"success": True}
+
+    # Dispatch notification to admins
+    try:
+        from services.notification_service import create_notification
+        admin_users = supabase.table("users_profile").select("id").eq("role", "admin").execute()
+        if admin_users.data:
+            for adm in admin_users.data:
+                create_notification(
+                    user_id=adm["id"],
+                    title="New Consumer Grievance Report",
+                    message=f"A user reported non-compliance: {body.reason[:100]}",
+                    notif_type="ACTION_REQUIRED",
+                    entity_type="product_report",
+                    entity_id=rep.get("id") if isinstance(rep, dict) else None,
+                )
+    except Exception:
+        pass
+
+    return rep
 
 
 # ---------------------------------------------------------------------------

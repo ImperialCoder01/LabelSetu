@@ -1,336 +1,441 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "../lib/supabase";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from "recharts";
+import { useAuth } from "../context/AuthContext";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from "recharts";
 
 const API_BASE = (import.meta.env.VITE_BACKEND_URL || "https://labelsetu.onrender.com").replace(/\/$/, "");
 
-// Field ID to human-readable name mapping
-const FIELD_NAMES = {
-  manufacturer_name_address: "Manufacturer Name & Address",
-  product_name: "Product Name",
-  net_quantity: "Net Quantity",
-  manufacturing_date: "Manufacturing Date",
-  mrp: "Maximum Retail Price (MRP)",
-  consumer_care_contact: "Consumer Care Contact",
-  unit_sale_price: "Unit Sale Price",
-  country_of_origin: "Country of Origin",
-  barcode_brand_match: "Barcode-Brand Match",
-};
+const REPORT_TYPES = [
+  { value: "VIOLATION", label: "Mandatory Declaration Violation (Rule 6)" },
+  { value: "SUSPECTED_COUNTERFEIT", label: "Suspected Counterfeit / Clone" },
+  { value: "INFO_DISCREPANCY", label: "Product Specification Discrepancy" },
+  { value: "PACKAGING_DISCREPANCY", label: "Packaging Artwork Tampering" },
+  { value: "MISSING_DECLARATION", label: "Missing Statutory Declaration" },
+  { value: "MANUFACTURER_ISSUE", label: "Manufacturer Address Untraceable" },
+  { value: "CONSUMER_COMPLAINT", label: "Consumer Grievance Investigation" },
+];
 
-function parseMissingFields(mf) {
-  if (!mf) return [];
-  const raw = typeof mf === "string" ? JSON.parse(mf) : mf;
-  return Array.isArray(raw) ? raw : [];
-}
+const RECOMMENDED_ACTIONS = [
+  { value: "WARNING_NOTICE", label: "Issue Statutory Warning Notice" },
+  { value: "SUSPEND_PRODUCT", label: "Recommend Product Suspension" },
+  { value: "PRODUCT_RECALL", label: "Recommend Batch Recall" },
+  { value: "SEIZE_BATCH", label: "Recommend Market Seizure" },
+  { value: "REQUEST_INFO", label: "Request Clarification from Manufacturer" },
+  { value: "FURTHER_INVESTIGATION", label: "Schedule On-Site Inspection" },
+  { value: "NO_ACTION", label: "No Action / False Positive" },
+];
 
-function TopFailedFieldsChart({ scans }) {
-  const data = useMemo(() => {
-    const counts = {};
-    scans.forEach(scan => {
-      parseMissingFields(scan.missing_fields).forEach(f => {
-        counts[f] = (counts[f] || 0) + 1;
-      });
-    });
-    return Object.entries(counts)
-      .map(([id, count]) => ({ field: FIELD_NAMES[id] || id, count, id }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 8);
-  }, [scans]);
-
-  if (data.length === 0) return <p className="text-gray-500 text-sm">No violation data available.</p>;
-
-  return (
-    <div className="card">
-      <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Most Failed Fields</h3>
-      <div style={{ height: 300 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-            <XAxis type="number" tick={{ fontSize: 12 }} />
-            <YAxis type="category" dataKey="field" width={180} tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(val) => [val + " scans", "Failures"]} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-            <Bar dataKey="count" fill="#ef4444" radius={[0, 4, 4, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-function ScoreTrendChart({ scans }) {
-  const data = useMemo(() => {
-    const byDate = {};
-    scans.forEach(scan => {
-      const date = scan.created_at ? scan.created_at.substring(0, 10) : null;
-      if (!date) return;
-      if (!byDate[date]) byDate[date] = { scores: [], count: 0 };
-      byDate[date].scores.push(scan.compliance_score || 0);
-      byDate[date].count++;
-    });
-    return Object.entries(byDate)
-      .map(([date, d]) => ({ date, avg: Math.round(d.scores.reduce((a, b) => a + b, 0) / d.count), count: d.count }))
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(-30);
-  }, [scans]);
-
-  if (data.length === 0) return <p className="text-gray-500 text-sm">No trend data available.</p>;
-
-  return (
-    <div className="card">
-      <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Compliance Score Trend</h3>
-      <div style={{ height: 300 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-            <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(d) => d.substring(5)} />
-            <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
-            <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} formatter={(val) => [val + "%", "Avg Score"]} labelFormatter={(l) => "Date: " + l} />
-            <Line type="monotone" dataKey="avg" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
 export default function RegulatorDashboard() {
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState("cases"); // 'cases' | 'new_case' | 'scans' | 'grievances'
+  const [cases, setCases] = useState([]);
   const [scans, setScans] = useState([]);
   const [flaggedReports, setFlaggedReports] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [scoreFilter, setScoreFilter] = useState("all");
-  const [violationFilter, setViolationFilter] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [reviewLoading, setReviewLoading] = useState(null);
 
-  useEffect(() => { fetchAllScans(); fetchFlaggedReports(); }, []);
+  // New Case Form State
+  const [submittingCase, setSubmittingCase] = useState(false);
+  const [caseSuccess, setCaseSuccess] = useState(false);
+  const [caseError, setCaseError] = useState(null);
+  const [caseForm, setCaseForm] = useState({
+    barcode: "",
+    product_id: "",
+    report_type: "VIOLATION",
+    severity: "HIGH",
+    description: "",
+    detected_issue: "",
+    applicable_rule: "Legal Metrology (Packaged Commodities) Rules, 2011 - Rule 6(1)",
+    executive_observations: "",
+    recommended_action: "WARNING_NOTICE",
+  });
 
-  async function fetchAllScans() {
-    const { data, error } = await supabase
-      .from("scans")
-      .select("*, users_profile!scans_user_id_fkey(full_name, role)")
-      .order("created_at", { ascending: false });
-    if (!error) setScans(data);
-    setLoading(false);
-  }
-
-  async function fetchFlaggedReports() {
+  const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
-      const res = await fetch(API_BASE + "/api/reports/flagged", {
-        headers: { Authorization: "Bearer " + session.access_token },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setFlaggedReports(data);
-      }
-    } catch (err) {
-      console.error("Failed to fetch flagged reports:", err);
-    }
-  }
 
-  async function handleReview(reportId) {
-    setReviewLoading(reportId);
+      // 1. Fetch Executive Cases
+      const casesRes = await fetch(`${API_BASE}/api/executive-reports`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      if (casesRes.ok) {
+        const cData = await casesRes.json();
+        setCases(cData || []);
+      }
+
+      // 2. Fetch Scans
+      const scansRes = await supabase
+        .from("scans")
+        .select("*, users_profile!scans_user_id_fkey(full_name, role)")
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (!scansRes.error) setScans(scansRes.data || []);
+
+      // 3. Fetch Forwarded Reports
+      const repsRes = await supabase
+        .from("product_reports")
+        .select("*, scans(extracted_text, compliance_score)")
+        .eq("status", "forwarded")
+        .order("created_at", { ascending: false });
+      if (!repsRes.error) setFlaggedReports(repsRes.data || []);
+    } catch (err) {
+      console.error("Failed to load regulator data:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const handleCaseSubmit = async (e) => {
+    e.preventDefault();
+    setSubmittingCase(true);
+    setCaseError(null);
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(API_BASE + "/api/reports/" + reportId + "/review", {
-        method: "PATCH",
-        headers: { Authorization: "Bearer " + session.access_token },
+      if (!session) throw new Error("Authentication required");
+
+      const res = await fetch(`${API_BASE}/api/executive-reports`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(caseForm),
       });
-      if (res.ok) {
-        setFlaggedReports(prev => prev.filter(r => r.id !== reportId));
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Failed to submit executive report");
       }
+
+      setCaseSuccess(true);
+      fetchData();
+      setTimeout(() => {
+        setCaseSuccess(false);
+        setActiveTab("cases");
+        setCaseForm({
+          barcode: "",
+          product_id: "",
+          report_type: "VIOLATION",
+          severity: "HIGH",
+          description: "",
+          detected_issue: "",
+          applicable_rule: "Legal Metrology (Packaged Commodities) Rules, 2011 - Rule 6(1)",
+          executive_observations: "",
+          recommended_action: "WARNING_NOTICE",
+        });
+      }, 2000);
     } catch (err) {
-      console.error("Review failed:", err);
+      setCaseError(err.message);
     } finally {
-      setReviewLoading(null);
+      setSubmittingCase(false);
     }
-  }
-
-  // Compute derived filter options
-  const allViolationTypes = useMemo(() => {
-    const types = new Set();
-    scans.forEach(scan => {
-      parseMissingFields(scan.missing_fields).forEach(f => types.add(f));
-    });
-    return Array.from(types).sort();
-  }, [scans]);
-
-  // Apply filters
-  const filteredScans = useMemo(() => {
-    return scans.filter(scan => {
-      // Score filter
-      if (scoreFilter === "high" && scan.compliance_score < 80) return false;
-      if (scoreFilter === "medium" && (scan.compliance_score < 50 || scan.compliance_score >= 80)) return false;
-      if (scoreFilter === "low" && scan.compliance_score >= 50) return false;
-      // Violation type filter
-      if (violationFilter !== "all") {
-        const missing = parseMissingFields(scan.missing_fields);
-        if (!missing.includes(violationFilter)) return false;
-      }
-      // Search filter
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
-        const text = (scan.extracted_text || "").toLowerCase();
-        const name = (scan.users_profile?.full_name || "").toLowerCase();
-        if (!text.includes(q) && !name.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [scans, scoreFilter, violationFilter, searchQuery]);
-
-  // Stats
-  const stats = useMemo(() => ({
-    total: scans.length,
-    high: scans.filter(s => s.compliance_score >= 80).length,
-    medium: scans.filter(s => s.compliance_score >= 50 && s.compliance_score < 80).length,
-    low: scans.filter(s => s.compliance_score < 50).length,
-    avg: scans.length > 0 ? Math.round(scans.reduce((a, s) => a + (s.compliance_score || 0), 0) / scans.length) : 0,
-  }), [scans]);
+  };
 
   return (
-    <div className="space-y-8">
-      <div><h1 className="text-2xl font-bold text-gray-900">Regulator Dashboard</h1><p className="text-gray-500 mt-1">Monitor all product label compliance across brands</p></div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="card"><p className="text-sm text-gray-500">Total Scans</p><p className="text-3xl font-bold text-gray-900">{stats.total}</p></div>
-        <div className="card"><p className="text-sm text-gray-500">Avg Score</p><p className={"text-3xl font-bold " + (stats.avg >= 80 ? "text-green-600" : stats.avg >= 50 ? "text-yellow-600" : "text-red-600")}>{stats.avg}%</p></div>
-        <div className="card"><p className="text-sm text-gray-500">Compliant</p><p className="text-3xl font-bold text-green-600">{stats.high}</p></div>
-        <div className="card"><p className="text-sm text-gray-500">Partial</p><p className="text-3xl font-bold text-yellow-600">{stats.medium}</p></div>
-        <div className="card"><p className="text-sm text-gray-500">Non-Compliant</p><p className="text-3xl font-bold text-red-600">{stats.low}</p></div>
+    <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      {/* Header & Tabs */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+        <div>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Executive Officer Enforcement Workspace</h1>
+          <p className="text-xs text-slate-500 mt-1">Investigate non-compliance, build evidence cases & recommend regulatory actions</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setActiveTab("cases")}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              activeTab === "cases" ? "bg-slate-900 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            📋 Investigation Cases ({cases.length})
+          </button>
+          <button
+            onClick={() => setActiveTab("new_case")}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              activeTab === "new_case" ? "bg-indigo-600 text-white shadow" : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+            }`}
+          >
+            ➕ Open New Case
+          </button>
+          <button
+            onClick={() => setActiveTab("scans")}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              activeTab === "scans" ? "bg-emerald-600 text-white shadow" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+            }`}
+          >
+            📊 Market Scans Telemetry
+          </button>
+          <button
+            onClick={() => setActiveTab("grievances")}
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
+              activeTab === "grievances" ? "bg-rose-600 text-white shadow" : "bg-rose-50 text-rose-700 hover:bg-rose-100"
+            }`}
+          >
+            🚨 Consumer Grievance Queue ({flaggedReports.length})
+          </button>
+        </div>
       </div>
 
-      {/* Flagged Reports */}
-      {flaggedReports.length > 0 && (
-        <div className="card">
-          <div className="flex items-center gap-2 mb-4">
-            <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
-            </svg>
-            <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Flagged Reports from Consumers</h3>
-            <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">
-              {flaggedReports.length}
-            </span>
+      {/* TAB 1: CASES LIST */}
+      {activeTab === "cases" && (
+        <div className="space-y-4">
+          {loading ? (
+            <div className="card-slate p-8 text-center text-slate-400 font-bold">Loading investigation cases...</div>
+          ) : cases.length === 0 ? (
+            <div className="card-slate p-12 text-center space-y-3">
+              <div className="text-4xl">⚖️</div>
+              <h3 className="text-base font-extrabold text-slate-800">No Enforcement Cases Filed Yet</h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                Open investigation cases on products with severe Legal Metrology violations, suspected counterfeits, or price overcharging to recommend administrative action.
+              </p>
+              <button
+                onClick={() => setActiveTab("new_case")}
+                className="btn-accent px-6 py-2.5 text-xs inline-block mt-2"
+              >
+                Open First Investigation Case
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {cases.map((c) => (
+                <div key={c.id} className="card-slate p-5 space-y-3 border hover:border-slate-400 transition-all">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="font-mono text-[11px] font-black text-indigo-700">{c.case_number}</span>
+                      <h3 className="text-sm font-black text-slate-900 mt-0.5">{c.description}</h3>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase ${
+                      c.severity === "CRITICAL" ? "bg-rose-100 text-rose-800" : c.severity === "HIGH" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
+                    }`}>
+                      {c.severity}
+                    </span>
+                  </div>
+
+                  <div className="bg-slate-50 p-3 rounded-xl space-y-1 text-xs font-mono text-slate-600">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Barcode / SKU:</span>
+                      <span className="font-bold text-slate-900">{c.barcode || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Recommendation:</span>
+                      <span className="font-bold text-indigo-800">{c.recommended_action}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Admin Status:</span>
+                      <span className={`font-bold ${
+                        c.status === "APPROVED" ? "text-emerald-700" : c.status === "REJECTED" ? "text-rose-700" : "text-amber-700"
+                      }`}>{c.status}</span>
+                    </div>
+                  </div>
+
+                  {c.admin_comments && (
+                    <div className="p-2.5 bg-slate-100 rounded-lg text-xs text-slate-700">
+                      <strong className="block text-[10px] uppercase text-slate-500 font-bold">Admin Decision Comments:</strong>
+                      {c.admin_comments}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 2: OPEN NEW CASE */}
+      {activeTab === "new_case" && (
+        <div className="card-slate p-6 sm:p-8 max-w-3xl mx-auto space-y-6">
+          <div>
+            <h2 className="text-lg font-black text-slate-900">Initiate Enforcement Investigation Case</h2>
+            <p className="text-xs text-slate-500">Document evidence and submit enforcement recommendation to Administrative Authority</p>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 text-left">
-                  <th className="py-2 px-3 font-medium text-gray-500">Date</th>
-                  <th className="py-2 px-3 font-medium text-gray-500">Reporter</th>
-                  <th className="py-2 px-3 font-medium text-gray-500">Brand</th>
-                  <th className="py-2 px-3 font-medium text-gray-500">Score</th>
-                  <th className="py-2 px-3 font-medium text-gray-500">Reason</th>
-                  <th className="py-2 px-3 font-medium text-gray-500 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {flaggedReports.map(report => (
-                  <tr key={report.id} className="border-b border-gray-50 hover:bg-red-50 transition-colors">
-                    <td className="py-3 px-3 text-xs text-gray-500 whitespace-nowrap">
-                      {new Date(report.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="py-3 px-3 text-gray-900">
-                      {report.users_profile?.full_name || "Unknown"}
-                    </td>
-                    <td className="py-3 px-3">
-                      <p className="text-gray-900 truncate max-w-[150px]">
-                        {report.scans?.extracted_text?.substring(0, 40) || "—"}
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        {report.scans?.users_profile?.full_name || "—"}
-                      </p>
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className={`font-bold text-sm ${
-                        report.scans?.compliance_score >= 80 ? "text-green-600" :
-                        report.scans?.compliance_score >= 50 ? "text-yellow-600" : "text-red-600"
-                      }`}>
-                        {report.scans?.compliance_score ?? "—"}%
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-gray-600 text-xs max-w-[120px] truncate">
-                      {report.reason || "—"}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      <button
-                        onClick={() => handleReview(report.id)}
-                        disabled={reviewLoading === report.id}
-                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 transition-colors disabled:opacity-50"
-                      >
-                        {reviewLoading === report.id ? "Reviewing…" : "Mark Reviewed"}
-                      </button>
-                    </td>
-                  </tr>
+
+          {caseSuccess && (
+            <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold">
+              ✓ Investigation case submitted successfully to Admin Approval Queue!
+            </div>
+          )}
+
+          {caseError && (
+            <div className="p-4 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-bold">
+              ⚠️ {caseError}
+            </div>
+          )}
+
+          <form onSubmit={handleCaseSubmit} className="space-y-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Target Barcode / GTIN *</label>
+                <input
+                  type="text"
+                  required
+                  value={caseForm.barcode}
+                  onChange={(e) => setCaseForm((prev) => ({ ...prev, barcode: e.target.value }))}
+                  placeholder="e.g. 8901262010053"
+                  className="w-full p-2.5 rounded-lg border border-slate-300 font-mono outline-none"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Investigation Severity *</label>
+                <select
+                  value={caseForm.severity}
+                  onChange={(e) => setCaseForm((prev) => ({ ...prev, severity: e.target.value }))}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 outline-none font-bold"
+                >
+                  <option value="LOW">🟡 Low (Minor Formatting Issue)</option>
+                  <option value="MEDIUM">🟠 Medium (Missing Optional Declaration)</option>
+                  <option value="HIGH">🔴 High (Missing Critical Declaration / Price Inflated)</option>
+                  <option value="CRITICAL">🚨 Critical (Counterfeit / Serious Tampering)</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Violation Category *</label>
+              <select
+                value={caseForm.report_type}
+                onChange={(e) => setCaseForm((prev) => ({ ...prev, report_type: e.target.value }))}
+                className="w-full p-2.5 rounded-lg border border-slate-300 outline-none"
+              >
+                {REPORT_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
-              </tbody>
-            </table>
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Case Description & Findings *</label>
+              <textarea
+                rows={3}
+                required
+                value={caseForm.description}
+                onChange={(e) => setCaseForm((prev) => ({ ...prev, description: e.target.value }))}
+                placeholder="Describe the detected non-compliance or physical packaging defect observed..."
+                className="w-full p-2.5 rounded-lg border border-slate-300 outline-none"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Applicable Statutory Rule</label>
+                <input
+                  type="text"
+                  value={caseForm.applicable_rule}
+                  onChange={(e) => setCaseForm((prev) => ({ ...prev, applicable_rule: e.target.value }))}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Executive Recommended Action *</label>
+                <select
+                  value={caseForm.recommended_action}
+                  onChange={(e) => setCaseForm((prev) => ({ ...prev, recommended_action: e.target.value }))}
+                  className="w-full p-2.5 rounded-lg border border-slate-300 outline-none font-bold text-indigo-900"
+                >
+                  {RECOMMENDED_ACTIONS.map((a) => (
+                    <option key={a.value} value={a.value}>{a.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4">
+              <button
+                type="button"
+                onClick={() => setActiveTab("cases")}
+                className="btn-secondary px-5 py-2 text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={submittingCase || !caseForm.barcode || !caseForm.description}
+                className="btn-accent px-7 py-2 text-xs bg-indigo-600 hover:bg-indigo-700"
+              >
+                {submittingCase ? "Submitting..." : "Submit to Admin Review Queue →"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* TAB 3: SCANS TELEMETRY (PRESERVED) */}
+      {activeTab === "scans" && (
+        <div className="space-y-4">
+          <div className="card-slate p-6">
+            <h3 className="text-sm font-black text-slate-900 mb-3">Ecosystem-Wide Market Packaging Scans</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="p-3">User</th>
+                    <th className="p-3">Compliance Score</th>
+                    <th className="p-3">Extracted Snippet</th>
+                    <th className="p-3">Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {scans.slice(0, 20).map((s) => (
+                    <tr key={s.id} className="hover:bg-slate-50">
+                      <td className="p-3 font-bold text-slate-900">{s.users_profile?.full_name || "Consumer"}</td>
+                      <td className="p-3">
+                        <span className={`font-mono font-bold px-2 py-0.5 rounded text-[11px] ${
+                          s.compliance_score >= 80 ? "bg-emerald-100 text-emerald-800" : s.compliance_score >= 50 ? "bg-amber-100 text-amber-800" : "bg-rose-100 text-rose-800"
+                        }`}>
+                          {s.compliance_score !== null ? `${s.compliance_score}/100` : "N/A"}
+                        </span>
+                      </td>
+                      <td className="p-3 text-slate-600 truncate max-w-xs">{s.extracted_text || "Image scan"}</td>
+                      <td className="p-3 text-slate-400 font-mono">{new Date(s.created_at).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <TopFailedFieldsChart scans={scans} />
-        <ScoreTrendChart scans={scans} />
-      </div>
-
-      {/* Filters */}
-      <div className="card">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm font-medium text-gray-700">Filters:</span>
-          <div className="flex gap-1.5">
-            {["all", "high", "medium", "low"].map(f => (
-              <button key={f} onClick={() => setScoreFilter(f)} className={"px-3 py-1.5 rounded-lg text-xs font-medium transition-colors " + (scoreFilter === f ? "bg-primary-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200")}>
-                {f === "all" ? "All Scores" : f === "high" ? "Compliant (80+)" : f === "medium" ? "Partial (50-79)" : "Non-Compliant (<50)"}
-              </button>
-            ))}
+      {/* TAB 4: GRIEVANCES */}
+      {activeTab === "grievances" && (
+        <div className="space-y-4">
+          <div className="card-slate p-6">
+            <h3 className="text-sm font-black text-slate-900 mb-3">Consumer Grievances Forwarded for Investigation</h3>
+            {flaggedReports.length === 0 ? (
+              <p className="text-xs text-slate-400">No forwarded consumer grievances pending investigation.</p>
+            ) : (
+              <div className="space-y-3">
+                {flaggedReports.map((r) => (
+                  <div key={r.id} className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                    <div className="flex justify-between font-bold">
+                      <span className="text-rose-700 font-black">Complaint ID: {r.id.substring(0, 8)}</span>
+                      <span className="text-slate-400">{new Date(r.created_at).toLocaleDateString()}</span>
+                    </div>
+                    <p className="text-slate-800 font-medium">{r.reason}</p>
+                    <button
+                      onClick={() => {
+                        setCaseForm((prev) => ({
+                          ...prev,
+                          description: `Consumer grievance investigation: ${r.reason}`,
+                          detected_issue: r.reason,
+                        }));
+                        setActiveTab("new_case");
+                      }}
+                      className="btn-accent text-[11px] px-3 py-1 mt-2 inline-block"
+                    >
+                      Convert to Enforcement Case →
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          {allViolationTypes.length > 0 && (
-            <select value={violationFilter} onChange={(e) => setViolationFilter(e.target.value)} className="input-field text-xs py-1.5 w-auto">
-              <option value="all">All Violation Types</option>
-              {allViolationTypes.map(v => <option key={v} value={v}>{FIELD_NAMES[v] || v}</option>)}
-            </select>
-          )}
-          <input type="text" placeholder="Search brand / text..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="input-field text-xs py-1.5 w-48" />
-          <span className="text-xs text-gray-400 ml-auto">{filteredScans.length} of {scans.length} scans</span>
         </div>
-      </div>
-
-      {/* Table */}
-      <div className="card">
-        <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">All Scans</h3>
-        {loading ? <p className="text-gray-500">Loading...</p> : filteredScans.length === 0 ? <p className="text-gray-500">No scans match the current filters.</p> : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-gray-200 text-left">
-                <th className="py-3 px-3 font-medium text-gray-500">Date</th>
-                <th className="py-3 px-3 font-medium text-gray-500">Brand / User</th>
-                <th className="py-3 px-3 font-medium text-gray-500">Extracted Text</th>
-                <th className="py-3 px-3 font-medium text-gray-500">Score</th>
-                <th className="py-3 px-3 font-medium text-gray-500">Violations</th>
-              </tr></thead>
-              <tbody>
-                {filteredScans.map((scan) => {
-                  const missing = parseMissingFields(scan.missing_fields);
-                  return (
-                    <tr key={scan.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                      <td className="py-3 px-3 text-gray-500 text-xs whitespace-nowrap">{new Date(scan.created_at).toLocaleDateString()}</td>
-                      <td className="py-3 px-3"><p className="font-medium text-gray-900 text-sm">{scan.users_profile?.full_name || "Unknown"}</p><p className="text-xs text-gray-400 capitalize">{scan.users_profile?.role || ""}</p></td>
-                      <td className="py-3 px-3 text-gray-700 max-w-xs truncate text-xs">{scan.extracted_text?.substring(0, 80) || "—"}</td>
-                      <td className="py-3 px-3"><span className={"font-bold text-sm " + (scan.compliance_score >= 80 ? "text-green-600" : scan.compliance_score >= 50 ? "text-yellow-600" : "text-red-600")}>{scan.compliance_score}%</span></td>
-                      <td className="py-3 px-3">
-                        {missing.length === 0 ? <span className="text-xs text-green-600">None</span> : (
-                          <div className="flex flex-wrap gap-1">{missing.map((f, i) => <span key={i} className="text-xs bg-red-50 text-red-600 px-1.5 py-0.5 rounded" title={FIELD_NAMES[f] || f}>{(FIELD_NAMES[f] || f).substring(0, 20)}</span>)}</div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }

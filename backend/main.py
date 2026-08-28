@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
 
-from routers import users, scans, admin, regulators, ocr, barcodes, certificates, verification, reports, leaderboard, webhook
+from routers import users, scans, admin, regulators, ocr, barcodes, certificates, verification, reports, leaderboard, webhook, products, product_verification, executive_reports, notifications
 from services.ocr_service import preload_model
 from services.rule_engine import load_rules
 
@@ -56,6 +56,10 @@ app.include_router(verification.router, prefix="/api/verify", tags=["Verificatio
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(leaderboard.router, prefix="/api/leaderboard", tags=["Leaderboard"])
 app.include_router(webhook.router, prefix="/api/webhook", tags=["Webhook"])
+app.include_router(products.router, prefix="/api/products", tags=["Products"])
+app.include_router(product_verification.router, prefix="/api/verification", tags=["Product Verification"])
+app.include_router(executive_reports.router, prefix="/api/executive-reports", tags=["Executive Reports"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 
 
 @app.on_event("startup")

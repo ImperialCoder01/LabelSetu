@@ -75,6 +75,9 @@ export default function ScanProductPage() {
   const [dragOver, setDragOver] = useState(false);
   const [capturedBarcode, setCapturedBarcode] = useState(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [barcodeVerifResult, setBarcodeVerifResult] = useState(null);
+  const [verifyingBarcode, setVerifyingBarcode] = useState(false);
+  const [crossValReport, setCrossValReport] = useState(null);
 
   const [screen, setScreen] = useState("upload");
   const [lastResult, setLastResult] = useState(null);
@@ -213,6 +216,33 @@ export default function ScanProductPage() {
 
       const resultData = await res.json();
       setLastResult(resultData);
+
+      // Perform Physical OCR vs Level 1 Cross-Validation if barcode available
+      if (capturedBarcode || resultData.barcode_lookup?.barcode) {
+        const bCode = capturedBarcode || resultData.barcode_lookup?.barcode;
+        try {
+          const cvRes = await fetch(`${API_BASE}/api/verification/cross-validate`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              barcode: bCode,
+              ocr_text: resultData.ocr?.extracted_text || "",
+              extracted_entities: resultData.ocr?.extracted_entities || {},
+              scan_id: resultData.scan_id,
+            }),
+          });
+          if (cvRes.ok) {
+            const cvData = await cvRes.json();
+            setCrossValReport(cvData);
+          }
+        } catch (cvErr) {
+          console.debug("Cross-validation skipped:", cvErr);
+        }
+      }
+
       setScreen("results");
     } catch (err) {
       if (err.name === "AbortError" && !isSubmittingRef.current) return; // Silent abort if user navigated
@@ -418,6 +448,49 @@ export default function ScanProductPage() {
               <span>🔲</span> {capturedBarcode ? `Barcode: ${capturedBarcode}` : "Scan Barcode"}
             </button>
           </div>
+
+          {/* Instant Barcode Authenticity Lookup Result */}
+          {barcodeVerifResult && (
+            <div className={`p-4 rounded-xl border text-xs space-y-2 ${
+              barcodeVerifResult.result === "VERIFIED"
+                ? "bg-emerald-50/80 border-emerald-200 text-emerald-950"
+                : barcodeVerifResult.result === "SUSPENDED_PRODUCT"
+                ? "bg-rose-50 border-rose-200 text-rose-950"
+                : "bg-amber-50/80 border-amber-200 text-amber-950"
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">{barcodeVerifResult.result === "VERIFIED" ? "🛡️" : "⚠️"}</span>
+                  <span className="font-extrabold text-sm">{barcodeVerifResult.message}</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded font-black text-[10px] uppercase ${
+                  barcodeVerifResult.result === "VERIFIED" ? "bg-emerald-200 text-emerald-900" : "bg-amber-200 text-amber-900"
+                }`}>
+                  {barcodeVerifResult.result}
+                </span>
+              </div>
+              {barcodeVerifResult.verified_product && (
+                <div className="bg-white/80 p-3 rounded-lg grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
+                  <div>
+                    <span className="text-slate-400 block text-[9px] uppercase font-bold">Product</span>
+                    <span className="font-bold text-slate-800">{barcodeVerifResult.verified_product.product_name}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[9px] uppercase font-bold">Brand</span>
+                    <span className="font-bold text-slate-800">{barcodeVerifResult.verified_product.brand_name}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[9px] uppercase font-bold">Official MRP</span>
+                    <span className="font-bold text-emerald-700">{barcodeVerifResult.verified_product.mrp ? `₹${barcodeVerifResult.verified_product.mrp}` : "N/A"}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[9px] uppercase font-bold">Net Quantity</span>
+                    <span className="font-bold text-slate-800">{barcodeVerifResult.verified_product.net_quantity || "N/A"}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <CameraCaptureModal
             isOpen={cameraModalOpen}
