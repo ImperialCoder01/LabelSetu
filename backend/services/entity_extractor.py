@@ -94,6 +94,52 @@ def _extract_net_quantity(text: str) -> Optional[str]:
     return None
 
 
+def extract_entities_with_evidence(text: str) -> Dict[str, Any]:
+    """
+    Extract structured entities with complete evidence tracing:
+    - value
+    - source ("image" / "barcode_catalog" / "inferred")
+    - evidence (exact raw text snippet matched)
+    - confidence (estimated extraction confidence score)
+    - normalization_applied (boolean)
+    """
+    simple_extracted = extract_entities_from_text(text)
+    detailed = {}
+
+    lines = [line.strip() for line in (text or "").split("\n") if line.strip()]
+
+    for key, val in simple_extracted.items():
+        if val is None:
+            detailed[key] = {
+                "value": None,
+                "source": "not_detected",
+                "evidence": None,
+                "confidence": 0.0,
+                "normalization_applied": False,
+            }
+            continue
+
+        # Find matching line snippet for evidence
+        evidence_snippet = None
+        for line in lines:
+            if val.lower() in line.lower() or key.replace("_", " ") in line.lower():
+                evidence_snippet = line
+                break
+
+        if not evidence_snippet:
+            evidence_snippet = f"Text contains '{val}'"
+
+        detailed[key] = {
+            "value": val,
+            "source": "image",
+            "evidence": evidence_snippet,
+            "confidence": 0.95 if len(val) > 2 else 0.85,
+            "normalization_applied": False,
+        }
+
+    return detailed
+
+
 def extract_entities_from_text(text: str) -> Dict[str, Any]:
     """
     Apply trained entity recognition patterns to OCR extracted text.

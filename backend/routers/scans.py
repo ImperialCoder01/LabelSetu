@@ -9,12 +9,15 @@ GET   /api/scans/{id}      — get a single scan by ID
 
 import io
 import json
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from database import supabase
 from auth.dependencies import get_current_user, require_role
 from services.ocr_service import extract_text_with_scores
 from services.rule_engine import load_rules, apply_rules
 from services.barcode_service import lookup_barcode, detect_manufacturer_mismatch
+from services.image_processor import analyze_image_quality, classify_image_content
+from services.entity_extractor import extract_entities_with_evidence
 
 router = APIRouter()
 
@@ -52,8 +55,6 @@ def _get_rules() -> dict:
 # ---------------------------------------------------------------------------
 # POST /scan — combined OCR + rule engine + Supabase save
 # ---------------------------------------------------------------------------
-from typing import Optional
-
 @router.post("/scan")
 async def scan(
     file: Optional[UploadFile] = File(None, description="Optional product label image (PNG / JPEG, max 10 MB)"),
@@ -83,17 +84,22 @@ async def scan(
     if len(image_bytes) == 0 and not barcode_clean:
         raise HTTPException(status_code=400, detail="Please upload a label image or scan a barcode.")
 
-    # ---- Handle OCR or Barcode-only text generation ----
+    # ---- Handle OCR, Image Quality & Classification ----
     ocr_result = {
         "provider": "none",
         "enhanced": False,
         "full_text": "",
         "extracted_entities": {},
+        "extracted_entities_detailed": {},
         "detections": [],
         "average_confidence": 0.0,
     }
 
+    quality_info = {"quality_status": "GOOD", "issues": [], "user_guidance": None}
+    classification = {"classification": "PRODUCT_LABEL", "is_product_label": True, "panel_type": "MIXED_PANEL", "user_guidance": None}
+
     if len(image_bytes) > 0:
+        quality_info = analyze_image_quality(image_bytes)
         try:
             ocr_result = extract_text_with_scores(image_bytes)
         except RuntimeError as exc:
@@ -101,14 +107,15 @@ async def scan(
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"OCR failed: {exc}")
 
+    full_text = ocr_result.get("full_text", "")
+    classification = classify_image_content(image_bytes, full_text, quality_info)
+    ocr_result["extracted_entities_detailed"] = extract_entities_with_evidence(full_text)
+
     barcode_data = None
     manufacturer_mismatch = None
 
     if barcode_clean:
         barcode_data = lookup_barcode(barcode_clean)
-
-    # Build full text for compliance evaluation
-    full_text = ocr_result.get("full_text", "")
 
     if not full_text and barcode_data and barcode_data.get("found"):
         # Construct synthetic text representation from registered Open Food Facts data
@@ -119,15 +126,13 @@ async def scan(
             f"Country of Origin: {barcode_data.get('origins', '') or barcode_data.get('countries', '')}",
             f"Net Quantity: {barcode_data.get('quantity', '')}",
         ]
-        full_text = "\n".join(l for l in b_lines if l.strip())
-        ocr_result["full_text"] = full_text
+        synthetic_text = "\n".join(l for l in b_lines if l.strip())
+        ocr_result["full_text"] = synthetic_text
         ocr_result["provider"] = "open_food_facts"
-
-    if not full_text.strip():
-        raise HTTPException(status_code=422, detail="No text could be extracted from image or barcode lookup.")
+        full_text = synthetic_text
 
     # ---- Compliance Evaluation ----
-    compliance_report = apply_rules(full_text, _get_rules())
+    compliance_report = apply_rules(full_text, _get_rules(), classification=classification, quality_info=quality_info)
 
     if barcode_data and ocr_result.get("provider") != "open_food_facts":
         manufacturer_mismatch = detect_manufacturer_mismatch(full_text, barcode_data)
@@ -137,6 +142,7 @@ async def scan(
                 "field_name": "Barcode-Brand Cross-Check",
                 "severity": "Critical",
                 "status": "fail",
+                "semantic_status": "CONFIRMED_MISSING",
                 "matched_keyword": None,
                 "description": manufacturer_mismatch["mismatch_detail"],
             }
@@ -150,7 +156,7 @@ async def scan(
 
     scan_data = {
         "user_id": user["sub"],
-        "image_url": "",  # TODO: upload to Supabase Storage
+        "image_url": "",
         "extracted_text": full_text,
         "compliance_score": compliance_report["overall_score"],
         "missing_fields": json.dumps(missing_field_ids),
@@ -172,9 +178,12 @@ async def scan(
             "enhanced": ocr_result.get("enhanced", False),
             "full_text": full_text,
             "extracted_entities": ocr_result.get("extracted_entities", {}),
+            "extracted_entities_detailed": ocr_result.get("extracted_entities_detailed", {}),
             "detections": ocr_result["detections"],
             "average_confidence": ocr_result["average_confidence"],
         },
+        "quality_info": quality_info,
+        "classification": classification,
         "compliance": compliance_report,
         "saved": saved,
     }

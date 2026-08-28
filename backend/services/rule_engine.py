@@ -63,7 +63,12 @@ def _check_field(text_lower: str, field: dict) -> dict:
 # -----------------------------------------------------------------------
 # Public API
 # -----------------------------------------------------------------------
-def apply_rules(extracted_text: str, rules: dict) -> dict:
+def apply_rules(
+    extracted_text: str,
+    rules: dict,
+    classification: dict = None,
+    quality_info: dict = None
+) -> dict:
     """
     Check OCR-extracted text against the Legal Metrology rules.
 
@@ -72,7 +77,7 @@ def apply_rules(extracted_text: str, rules: dict) -> dict:
 
     Returns a structured compliance report dict.
     """
-    text_lower = extracted_text.lower()
+    text_lower = (extracted_text or "").lower()
     all_fields = rules.get("fields", [])
 
     # Only evaluate active fields
@@ -87,8 +92,22 @@ def apply_rules(extracted_text: str, rules: dict) -> dict:
     minor_failures = []
     passed_count = 0
 
+    class_type = classification.get("classification") if classification else "PRODUCT_LABEL"
+    quality_status = quality_info.get("quality_status") if quality_info else "GOOD"
+
     for field in active_fields:
         result = _check_field(text_lower, field)
+
+        # Enhance semantic status
+        if result["status"] == "pass":
+            result["semantic_status"] = "PASS"
+        elif quality_status == "UNREADABLE":
+            result["semantic_status"] = "UNREADABLE"
+        elif class_type == "FRONT_PANEL":
+            result["semantic_status"] = "NOT_DETECTED"
+        else:
+            result["semantic_status"] = "CONFIRMED_MISSING"
+
         field_results.append(result)
 
         if result["status"] == "pass":
@@ -113,14 +132,21 @@ def apply_rules(extracted_text: str, rules: dict) -> dict:
 
     if failed_count == 0:
         status = "pass"
+        assessment = "COMPLIANT"
     elif passed_count == 0:
         status = "fail"
+        assessment = "NON_COMPLIANT" if class_type not in ("UNREADABLE_IMAGE", "SCREENSHOT") else class_type
     else:
         status = "partial"
+        assessment = "PARTIALLY_COMPLIANT"
+
+    if class_type == "FRONT_PANEL":
+        assessment = "FRONT_PANEL_ONLY"
 
     return {
         "overall_score": score,
         "status": status,
+        "compliance_assessment": assessment,
         "total_fields": total,
         "passed": passed_count,
         "failed": failed_count,

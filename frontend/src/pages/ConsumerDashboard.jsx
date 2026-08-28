@@ -181,15 +181,39 @@ function BarcodeLookupPanel({ barcodeData, mismatch }) {
 function ResultsScreen({ report, onScanAgain }) {
   const { t } = useTranslation();
   if (!report) return null;
-  const { compliance, ocr, barcode_lookup, manufacturer_mismatch } = report;
+  const { compliance, ocr, barcode_lookup, manufacturer_mismatch, quality_info, classification } = report;
   const score = compliance.overall_score;
   const scoreColor = score >= 80 ? "text-green-600" : score >= 50 ? "text-yellow-500" : "text-red-600";
   const scoreBg = score >= 80 ? "bg-green-50" : score >= 50 ? "bg-yellow-50" : "bg-red-50";
-  const scoreLabel = score >= 80 ? "Compliant" : score >= 50 ? "Partial" : "Non-Compliant";
+  const scoreLabel = compliance.compliance_assessment || (score >= 80 ? "Compliant" : score >= 50 ? "Partial" : "Non-Compliant");
   const dashLen = 2 * Math.PI * 52;
   const dashOff = 2 * Math.PI * 52 * (1 - score / 100);
+
   return (
     <div className="space-y-6">
+      {/* Image Quality & Classification Guidance Cards */}
+      {(quality_info || classification) && (
+        <div className="card bg-blue-50/50 border border-blue-200">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            {classification && (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                Panel: {classification.panel_type || classification.classification}
+              </span>
+            )}
+            {quality_info && (
+              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${quality_info.quality_status === "GOOD" ? "bg-green-100 text-green-800" : quality_info.quality_status === "UNREADABLE" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"}`}>
+                Image Quality: {quality_info.quality_status}
+              </span>
+            )}
+          </div>
+          {(classification?.user_guidance || quality_info?.user_guidance) && (
+            <p className="text-xs text-blue-900 mt-1 font-medium">
+              💡 {classification?.user_guidance || quality_info?.user_guidance}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="card flex flex-col items-center pt-8 pb-6">
         <div className="relative w-32 h-32 mb-4">
           <svg className="w-32 h-32 -rotate-90" viewBox="0 0 120 120">

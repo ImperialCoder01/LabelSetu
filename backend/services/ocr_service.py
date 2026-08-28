@@ -9,6 +9,7 @@ The rest of the app calls extract_text(image) without knowing which backend runs
 """
 
 import io
+import re
 import base64
 import logging
 import os
@@ -262,6 +263,31 @@ def extract_text(image: bytes) -> str:
         )
 
 
+def normalize_ocr_text_contextual(raw_text: str) -> str:
+    """
+    Perform conservative domain-aware OCR normalization for entity extraction & rule matching.
+    Raw OCR text remains untouched separately.
+    Contextual corrections:
+      - 'MOP ₹' / 'MOP Rs' -> 'MRP ₹' / 'MRP Rs' (when followed by currency/numbers)
+      - 'Mktd by' -> 'Marketed by'
+      - 'Mfd by' -> 'Manufactured by'
+      - 'Net Conten' -> 'Net Content'
+    """
+    if not raw_text:
+        return ""
+    text = raw_text
+
+    # 1. MOP -> MRP when followed by currency or price digits
+    text = re.sub(r"\bMOP\b(?=\s*(?:rs\.?|₹|inr|\d))", "MRP", text, flags=re.IGNORECASE)
+
+    # 2. Common abbreviations
+    text = re.sub(r"\bMktd\s*by\b", "Marketed by", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bMfd\s*by\b", "Manufactured by", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bNet\s*Conten\b", "Net Content", text, flags=re.IGNORECASE)
+
+    return text
+
+
 def extract_text_with_scores(image: bytes) -> dict:
     """
     Extract text from an image, run custom package entity extractor model,
@@ -286,7 +312,12 @@ def extract_text_with_scores(image: bytes) -> dict:
         )
 
     res["enhanced"] = was_enhanced
-    res["extracted_entities"] = extract_entities_from_text(res.get("full_text", ""))
+    raw_full_text = res.get("full_text", "")
+    normalized_full_text = normalize_ocr_text_contextual(raw_full_text)
+
+    res["full_text"] = raw_full_text
+    res["normalized_full_text"] = normalized_full_text
+    res["extracted_entities"] = extract_entities_from_text(normalized_full_text)
     return res
 
 
