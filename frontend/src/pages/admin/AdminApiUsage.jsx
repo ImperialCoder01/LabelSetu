@@ -23,7 +23,7 @@ export default function AdminApiUsage() {
           return;
         }
 
-        const res = await fetch(`${BACKEND_URL}/api/ocr/usage`, {
+        const res = await fetch(`${BACKEND_URL}/api/usage`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
 
@@ -48,12 +48,12 @@ export default function AdminApiUsage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t("admin.apiUsage.title")}</h1>
-          <p className="text-gray-500 mt-1">{t("admin.apiUsage.subtitle")}</p>
+          <h2 className="text-xl font-black text-slate-900 tracking-tight">API Usage & Telemetry</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Monitor API quota limits, provider allocation, and request metrics</p>
         </div>
-        <div className="card flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
-          <span className="ml-3 text-gray-500">{t("admin.apiUsage.loadingData")}</span>
+        <div className="card-slate flex items-center justify-center py-16">
+          <div className="animate-spin rounded-full h-8 w-8 border-3 border-slate-300 border-t-emerald-600" />
+          <span className="ml-3 text-xs font-bold text-slate-500">Loading API usage metrics...</span>
         </div>
       </div>
     );
@@ -63,162 +63,121 @@ export default function AdminApiUsage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t("admin.apiUsage.title")}</h1>
-          <p className="text-gray-500 mt-1">{t("admin.apiUsage.subtitle")}</p>
+          <h2 className="text-xl font-black text-slate-900 tracking-tight">API Usage & Telemetry</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Monitor API quota limits, provider allocation, and request metrics</p>
         </div>
-        <div className="card">
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 border border-red-200">
-            <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-            </svg>
-            <p className="text-sm font-medium text-red-800">Failed to load usage data: {error}</p>
+        <div className="card-slate p-6">
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-red-50 border border-red-200 text-red-900">
+            <span className="text-xl">⚠️</span>
+            <p className="text-xs font-bold">Failed to load usage data: {error}</p>
           </div>
         </div>
       </div>
     );
   }
 
-  const { provider, request_count, quota_limit, usage_percent, warning } = data;
+  const { provider, request_count = 0, quota_limit = 25000, usage_percent = 0, warning = false, month = "" } = data || {};
   const isCloud = provider === "cloud";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">API Usage</h1>
-        <p className="text-gray-500 mt-1">Monitor API quota and provider usage</p>
+        <h2 className="text-xl font-black text-slate-900 tracking-tight">API Usage & Telemetry</h2>
+        <p className="text-xs text-slate-500 mt-0.5">Monitor active OCR engine quota, monthly volume, and rate telemetry</p>
       </div>
 
       {isCloud ? (
         <>
-          {/* Cloud provider — progress bar */}
-          <div className="card">
-            <div className="flex items-center justify-between mb-2">
+          {/* Cloud Provider Quota Card */}
+          <div className="card-slate p-6 space-y-4">
+            <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-500">{t("admin.apiUsage.provider")}</p>
-                <p className="text-lg font-bold text-gray-900">{t("admin.apiUsage.cloudProvider")}</p>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider">Active Engine</p>
+                <p className="text-base font-extrabold text-slate-900 mt-0.5">Cloud OCR Engine (OCR.space Tier)</p>
               </div>
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-50 text-blue-700">
-                Cloud
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-extrabold bg-sky-50 text-sky-700 border border-sky-200">
+                Cloud Provider ({month})
               </span>
             </div>
 
-            {/* Warning banner */}
+            {/* Warning Banner if quota > 80% */}
             {warning && (
-              <div className="flex items-center gap-2 p-3 mb-4 rounded-lg bg-red-50 border border-red-200">
-                <svg
-                  className="w-5 h-5 text-red-600 flex-shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
-                  />
-                </svg>
-                <p className="text-sm font-medium text-red-800">
-                  Warning — Usage has exceeded 80% of your monthly quota.
-                  Consider switching to local OCR to avoid overage.
+              <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs">
+                <span className="text-lg">⚠️</span>
+                <p className="font-medium">
+                  <strong>Quota Warning:</strong> Monthly request volume has exceeded 80% of allocation. Consider switching to local EasyOCR to prevent request rate throttling.
                 </p>
               </div>
             )}
 
             {/* Progress bar */}
-            <div className="mt-4">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-gray-700">
-                  {t("admin.apiUsage.requestsUsed", { used: request_count.toLocaleString(), limit: quota_limit.toLocaleString() })}
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                <span>
+                  Requests Utilized: <span className="font-mono text-slate-900">{request_count.toLocaleString()}</span> / {quota_limit.toLocaleString()}
                 </span>
-                <span
-                  className={`text-sm font-semibold ${
-                    warning ? "text-red-600" : "text-gray-600"
-                  }`}
-                >
-                  {usage_percent.toFixed(1)}%
+                <span className={`font-mono ${warning ? "text-red-600 font-extrabold" : "text-slate-600"}`}>
+                  {usage_percent.toFixed(2)}%
                 </span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+              <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
                 <div
                   className={`h-full rounded-full transition-all duration-500 ${
-                    warning ? "bg-red-500" : "bg-primary-500"
+                    warning ? "bg-red-500" : "bg-emerald-600"
                   }`}
                   style={{ width: `${Math.min(usage_percent, 100)}%` }}
                 />
               </div>
+              <p className="text-[11px] text-slate-400">
+                Remaining Monthly Allocation: <span className="font-bold text-slate-700 font-mono">{Math.max(quota_limit - request_count, 0).toLocaleString()} requests</span>
+              </p>
             </div>
-
-            <p className="mt-3 text-sm text-gray-500">
-              {t("admin.apiUsage.remainingRequests", { count: (quota_limit - request_count).toLocaleString() })}
-            </p>
           </div>
 
-          {/* Quick stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="card">
-              <p className="text-sm text-gray-500">{t("admin.apiUsage.requestsUsed2")}</p>
-              <p className="text-3xl font-bold text-primary-600 mt-1">
-                {request_count.toLocaleString()}
-              </p>
+          {/* Quick Metrics Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="card-slate p-5">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Requests Logged</span>
+              <p className="text-3xl font-black text-slate-900 mt-1 font-mono">{request_count.toLocaleString()}</p>
+              <p className="text-[11px] text-slate-400 mt-1">Billing cycle: {month || "Current"}</p>
             </div>
-            <div className="card">
-              <p className="text-sm text-gray-500">{t("admin.apiUsage.quotaLimit")}</p>
-              <p className="text-3xl font-bold text-gray-900 mt-1">
-                {quota_limit.toLocaleString()}
-              </p>
+
+            <div className="card-slate p-5">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Monthly Quota</span>
+              <p className="text-3xl font-black text-slate-900 mt-1 font-mono">{quota_limit.toLocaleString()}</p>
+              <p className="text-[11px] text-slate-400 mt-1">Tier: Free Tier Allocation</p>
             </div>
-            <div className="card">
-              <p className="text-sm text-gray-500">{t("admin.apiUsage.remaining")}</p>
-              <p
-                className={`text-3xl font-bold mt-1 ${
-                  warning ? "text-red-600" : "text-green-600"
-                }`}
-              >
+
+            <div className="card-slate p-5">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Available Capacity</span>
+              <p className={`text-3xl font-black mt-1 font-mono ${warning ? "text-red-600" : "text-emerald-600"}`}>
                 {Math.max(quota_limit - request_count, 0).toLocaleString()}
               </p>
+              <p className="text-[11px] text-slate-400 mt-1">Resets 1st of next month</p>
             </div>
           </div>
         </>
       ) : (
         <>
-          {/* Local provider — badge */}
-          <div className="card">
-            <div className="flex flex-col items-center justify-center py-10 text-center">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                <svg
-                  className="w-8 h-8 text-green-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
-                  />
-                </svg>
-              </div>
-              <h2 className="text-xl font-bold text-gray-900 mb-1">
-                {t("admin.apiUsage.localBadge")}
-              </h2>
-              <p className="text-gray-500 max-w-md">
-                {t("admin.apiUsage.localDesc")}
-              </p>
+          {/* Local Provider View */}
+          <div className="card-slate p-8 text-center space-y-3">
+            <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto text-2xl shadow-xs">
+              🛡️
             </div>
+            <h3 className="text-base font-extrabold text-slate-900">Local OCR Engine Active</h3>
+            <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+              Optical character recognition runs entirely on server compute using EasyOCR (PyTorch). No external API quotas or third-party usage limits apply.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="card">
-              <p className="text-sm text-gray-500">{t("admin.apiUsage.provider")}</p>
-              <p className="text-lg font-bold text-green-600 mt-1">{t("admin.apiUsage.localProvider")}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="card-slate p-5">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Active Engine</span>
+              <p className="text-lg font-black text-emerald-600 mt-1">Local EasyOCR (Self-Hosted)</p>
             </div>
-            <div className="card">
-              <p className="text-sm text-gray-500">{t("admin.apiUsage.monthlyRequests")}</p>
-              <p className="text-lg font-bold text-gray-900 mt-1">
-                {t("admin.apiUsage.logged", { count: request_count.toLocaleString() })}
-              </p>
+            <div className="card-slate p-5">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Requests Processed</span>
+              <p className="text-lg font-black text-slate-900 mt-1 font-mono">{request_count.toLocaleString()} calls</p>
             </div>
           </div>
         </>
