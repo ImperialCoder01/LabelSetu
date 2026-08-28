@@ -40,9 +40,11 @@ def _get_reader():
         except Exception:
             pass
 
-        logger.info("Loading EasyOCR model (en) …")
-        _reader = easyocr.Reader(["en"], gpu=False)  # set gpu=True if CUDA available
-        logger.info("EasyOCR model loaded")
+        logger.info("[OCR] local reader initialization started (en, cpu, single-thread)...")
+        _reader = easyocr.Reader(["en"], gpu=False)
+        logger.info("[OCR] local reader initialized successfully")
+    else:
+        logger.info("[OCR] local reader reused from singleton cache")
     return _reader
 
 
@@ -63,45 +65,37 @@ def _ocr_space_api_key() -> str:
 def _extract_cloud(image_bytes: bytes) -> str:
     """
     Send image bytes to the OCR.space API and return extracted text.
-
-    Uses the free tier: https://ocr.space/ocrapi
     """
     url = "https://api.ocr.space/parse/image"
-
-    # OCR.space accepts base64-encoded images
     b64_image = base64.b64encode(image_bytes).decode("utf-8")
 
     payload = {
         "base64Image": f"data:image/png;base64,{b64_image}",
-        "language": "eng",  # OCR.space free tier supports eng; Hindi needs a paid plan
+        "language": "eng",
         "isOverlayRequired": "false",
-        "OCREngine": "2",  # Engine 2 is better for printed text / labels
+        "OCREngine": "2",
     }
 
     headers = {"apikey": _ocr_space_api_key()}
+    logger.info("[OCR] cloud attempt started (payload size: %d bytes)", len(b64_image))
 
     try:
-        with httpx.Client(timeout=12.0) as client:
+        with httpx.Client(timeout=10.0) as client:
             response = client.post(url, data=payload, headers=headers)
+            logger.info("[OCR] cloud response status=%d", response.status_code)
             response.raise_for_status()
 
         result = response.json()
-
-        # OCR.space wraps the result in "ParsedResults"
         parsed_results = result.get("ParsedResults", [])
         if not parsed_results:
-            logger.warning("OCR.space returned no parsed results: %s", result.get("ErrorMessage"))
+            logger.warning("[OCR] cloud returned no parsed results: %s", result.get("ErrorMessage"))
             return ""
 
-        # Concatenate all parsed text blocks
         texts = [r.get("ParsedText", "") for r in parsed_results]
         return " ".join(texts).strip()
 
-    except httpx.HTTPStatusError as exc:
-        logger.error("OCR.space HTTP error %s: %s", exc.response.status_code, exc.response.text)
-        raise RuntimeError(f"OCR.space API error: {exc.response.status_code}") from exc
     except Exception as exc:
-        logger.error("OCR.space request failed: %s", exc)
+        logger.warning("[OCR] cloud failure reason=%s", exc)
         raise
 
 
@@ -184,14 +178,16 @@ def _extract_cloud_with_scores(image_bytes: bytes) -> dict:
     payload = {
         "base64Image": f"data:image/png;base64,{b64_image}",
         "language": "eng",
-        "isOverlayRequired": "true",  # needed for per-line confidence
+        "isOverlayRequired": "true",
         "OCREngine": "2",
     }
     headers = {"apikey": _ocr_space_api_key()}
+    logger.info("[OCR] cloud attempt started (payload size: %d bytes)", len(b64_image))
 
     try:
-        with httpx.Client(timeout=12.0) as client:
+        with httpx.Client(timeout=10.0) as client:
             response = client.post(url, data=payload, headers=headers)
+            logger.info("[OCR] cloud response status=%d", response.status_code)
             response.raise_for_status()
 
         result = response.json()
@@ -207,9 +203,8 @@ def _extract_cloud_with_scores(image_bytes: bytes) -> dict:
         detections = []
         for block in parsed:
             text = block.get("ParsedText", "")
-            confidence = 0.95  # default when not provided per-line
+            confidence = 0.95
 
-            # Try to extract per-word confidence from LineOverlay
             line_overlay = block.get("LineOverlay", [])
             if line_overlay:
                 words = line_overlay[0].get("Words", []) if line_overlay else []
@@ -237,9 +232,8 @@ def _extract_cloud_with_scores(image_bytes: bytes) -> dict:
             "average_confidence": avg,
         }
 
-    except httpx.HTTPStatusError as exc:
-        raise RuntimeError(f"OCR.space API error: {exc.response.status_code}") from exc
     except Exception as exc:
+        logger.warning("[OCR] cloud failure reason=%s", exc)
         raise
 
 
@@ -302,24 +296,51 @@ def extract_text_with_scores(image: bytes) -> dict:
     """
     Extract text from an image, run custom package entity extractor model,
     and return detections with confidence scores.
+    Always returns a valid dictionary and never raises uncaught exceptions.
     """
     enhanced_image, was_enhanced = enhance_image_for_ocr(image)
     provider = settings.OCR_PROVIDER.lower()
+    res = None
 
     if provider == "cloud":
         try:
             res = _extract_cloud_with_scores(enhanced_image)
         except Exception as exc:
-            logger.warning("Cloud OCR failed (%s), falling back to local EasyOCR...", exc)
-            res = _extract_local_with_scores(enhanced_image)
-            res["provider"] = "local (fallback)"
+            logger.warning("[OCR] cloud OCR failed (%s), initiating safe local fallback...", exc)
+            logger.info("[OCR] local fallback started")
+            try:
+                res = _extract_local_with_scores(enhanced_image)
+                res["provider"] = "local (fallback)"
+            except Exception as local_exc:
+                logger.error("[OCR] local fallback also encountered error: %s", local_exc)
+                res = {
+                    "provider": "unavailable",
+                    "full_text": "",
+                    "detections": [],
+                    "average_confidence": 0.0,
+                    "error": f"Cloud and local OCR unavailable: {str(local_exc)}"
+                }
     elif provider == "local":
-        res = _extract_local_with_scores(enhanced_image)
+        logger.info("[OCR] local OCR started")
+        try:
+            res = _extract_local_with_scores(enhanced_image)
+        except Exception as local_exc:
+            logger.error("[OCR] local OCR encountered error: %s", local_exc)
+            res = {
+                "provider": "local (error)",
+                "full_text": "",
+                "detections": [],
+                "average_confidence": 0.0,
+                "error": str(local_exc)
+            }
     else:
-        raise RuntimeError(
-            f"Unknown OCR_PROVIDER '{provider}'. "
-            "Set OCR_PROVIDER to 'local' or 'cloud' in your .env file."
-        )
+        res = {
+            "provider": "unknown",
+            "full_text": "",
+            "detections": [],
+            "average_confidence": 0.0,
+            "error": f"Unknown OCR_PROVIDER '{provider}'"
+        }
 
     res["enhanced"] = was_enhanced
     raw_full_text = res.get("full_text", "")

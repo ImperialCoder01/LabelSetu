@@ -8,10 +8,13 @@ Groq AI analysis and external product research, and persistence to Supabase.
 
 import asyncio
 import json
+import logging
 import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+
+logger = logging.getLogger(__name__)
 from auth.dependencies import get_current_user, require_role
 from database import supabase
 from services.ai_service import analyze_label_with_groq
@@ -69,11 +72,16 @@ async def scan(
     Multi-image scan pipeline with parallelized AI & external research execution.
     """
     t_start = time.perf_counter()
+    user_role = user.get("profile", {}).get("role", "consumer")
+    logger.info("[SCAN] request started (user_id=%s, role=%s)", user.get("sub"), user_role)
+
     upload_list = []
     if files:
         upload_list.extend(files)
     if file and file not in upload_list:
         upload_list.append(file)
+
+    logger.info("[SCAN] received %d images", len(upload_list))
 
     barcode_clean = barcode.strip() if barcode else None
     if barcode_clean and len(barcode_clean) > 64:
@@ -116,12 +124,15 @@ async def scan(
             try:
                 ocr_res = extract_text_with_scores(b_bytes)
             except Exception as exc:
-                raise HTTPException(status_code=500, detail=f"OCR failed for image {f.filename}: {exc}")
+                logger.error("[OCR] unexpected OCR extraction error for %s: %s", f.filename, exc)
+                ocr_res = {"provider": "unavailable", "full_text": "", "detections": [], "average_confidence": 0.0}
 
             raw_txt = ocr_res.get("full_text", "")
             norm_txt = ocr_res.get("normalized_full_text", raw_txt)
             classification = classify_image_content(b_bytes, raw_txt, quality_info)
             detailed_entities = extract_entities_with_evidence(raw_txt, norm_txt)
+
+            logger.info("[OCR] image %d completed (chars=%d, provider=%s)", idx, len(raw_txt), ocr_res.get("provider"))
 
             if raw_txt.strip():
                 combined_texts.append(raw_txt)
@@ -143,6 +154,7 @@ async def scan(
     gc.collect()
 
     t_ocr_ms = round((time.perf_counter() - t_ocr_start) * 1000, 2)
+    logger.info("[SCAN] OCR completed (%sms, combined_length=%d)", t_ocr_ms, len(full_text) if 'full_text' in locals() else len(combined_texts))
 
     if len(image_results) == 0 and not barcode_clean:
         raise HTTPException(status_code=400, detail="Please upload at least one label image or scan a barcode.")
