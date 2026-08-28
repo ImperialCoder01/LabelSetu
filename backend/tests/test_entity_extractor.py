@@ -195,6 +195,49 @@ MRP ₹200"""
         self.assertNotIn("200", r_d["consumer_care"])
         self.assertEqual(r_d["mrp"], "200")
 
+    def test_country_of_origin_multi_word_and_boundaries(self):
+        """Test single-word and multi-word Country of Origin extraction with strict boundary termination."""
+        # A. Single-word country
+        t_a = "Country of Origin: India"
+        self.assertEqual(extract_entities_from_text(t_a)["country_of_origin"], "India")
+
+        # B. Multi-word country
+        t_b = "Country of Origin: Republic of India"
+        self.assertEqual(extract_entities_from_text(t_b)["country_of_origin"], "Republic of India")
+
+        # C. USA
+        t_c = "Made in United States of America"
+        self.assertEqual(extract_entities_from_text(t_c)["country_of_origin"], "United States of America")
+
+        # D. United Kingdom
+        t_d = "Product of United Kingdom"
+        self.assertEqual(extract_entities_from_text(t_d)["country_of_origin"], "United Kingdom")
+
+        # E. Boundary protection (Stop before Manufactured by)
+        t_e = """Country of Origin: Republic of India
+Manufactured by: ABC Foods Pvt. Ltd.
+MRP: ₹200"""
+        r_e = extract_entities_from_text(t_e)
+        self.assertEqual(r_e["country_of_origin"], "Republic of India")
+        self.assertNotIn("Manufactured", r_e["country_of_origin"])
+
+        # F. Manufacturer separation (Indian address must NOT create fake origin)
+        t_f = """Manufactured by:
+ABC Foods Pvt. Ltd.
+New Delhi - 110020"""
+        self.assertIsNone(extract_entities_from_text(t_f)["country_of_origin"])
+
+        # G. Arbitrary number protection
+        t_g = "MRP ₹200\nNet Qty 400g\nBatch 123456"
+        self.assertIsNone(extract_entities_from_text(t_g)["country_of_origin"])
+
+        # J. OCR case/spacing variations
+        t_j1 = "COUNTRY OF ORIGIN : INDIA"
+        self.assertEqual(extract_entities_from_text(t_j1)["country_of_origin"], "INDIA")
+
+        t_j2 = "Country   of   Origin - India"
+        self.assertEqual(extract_entities_from_text(t_j2)["country_of_origin"], "India")
+
 
 if __name__ == "__main__":
     unittest.main()

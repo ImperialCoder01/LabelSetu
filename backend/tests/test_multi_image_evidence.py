@@ -282,6 +282,42 @@ class TestMultiImageEvidence(unittest.TestCase):
         mfg_field = next(f for f in report["fields"] if f["field_id"] == "manufacturing_date")
         self.assertEqual(mfg_field["evidence_status"], "CONFIRMED_PRESENT")
 
+    def test_multi_image_origin_non_conflict_and_genuine_conflict(self):
+        """Verify 'Republic of India' vs 'Made in Republic of India' match as CONFIRMED_PRESENT, while 'India' vs 'China' is CONFLICTING_EVIDENCE."""
+        # Non-conflict equivalent origin
+        img1 = {
+            "image_index": 1,
+            "filename": "front.jpg",
+            "raw_text": "Country of Origin: Republic of India",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "FRONT_PANEL", "classification": "FRONT_PANEL"},
+            "extracted_entities": {"country_of_origin": "Republic of India"},
+        }
+        img2 = {
+            "image_index": 2,
+            "filename": "back.jpg",
+            "raw_text": "Made in Republic of India",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "BACK_DECLARATION_PANEL", "classification": "BACK_DECLARATION_PANEL"},
+            "extracted_entities": {"country_of_origin": "Made in Republic of India"},
+        }
+        report1 = apply_multi_image_rules([img1, img2], self.rules)
+        coo_field1 = next(f for f in report1["fields"] if f["field_id"] == "country_of_origin")
+        self.assertEqual(coo_field1["evidence_status"], "CONFIRMED_PRESENT")
+
+        # Genuine conflict (India vs China)
+        img3 = {
+            "image_index": 2,
+            "filename": "back.jpg",
+            "raw_text": "Country of Origin: China",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "BACK_DECLARATION_PANEL", "classification": "BACK_DECLARATION_PANEL"},
+            "extracted_entities": {"country_of_origin": "China"},
+        }
+        report2 = apply_multi_image_rules([img1, img3], self.rules)
+        coo_field2 = next(f for f in report2["fields"] if f["field_id"] == "country_of_origin")
+        self.assertEqual(coo_field2["evidence_status"], "CONFLICTING_EVIDENCE")
+
 
 if __name__ == "__main__":
     unittest.main()

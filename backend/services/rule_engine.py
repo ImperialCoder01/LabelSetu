@@ -92,6 +92,10 @@ def _canonicalize_field_value(field_id: str, val: Any) -> str:
     elif field_id in ("manufacturer_name_address", "manufacturer"):
         s_clean = re.sub(r"[^\w\s]", "", s)
         s_clean = re.sub(r"\s+", " ", s_clean).strip()
+    elif field_id in ("country_of_origin", "origin"):
+        s_clean = re.sub(r"^(?:country\s*of\s*origin|made\s*in|product\s*of|produced\s*in|manufactured\s*in)\s*", "", s, flags=re.IGNORECASE)
+        s_clean = re.sub(r"[^\w\s]", "", s_clean)
+        s_clean = re.sub(r"\s+", "", s_clean).strip()
     return s_clean
 
 
@@ -261,7 +265,7 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
                 if canonical_val:
                     conflicting_values.add(canonical_val)
 
-        if len(conflicting_values) > 1 and field_id in ("net_quantity", "mrp", "mfg_date"):
+        if len(conflicting_values) > 1 and field_id in ("net_quantity", "mrp", "mfg_date", "manufacturing_date", "country_of_origin"):
             evidence_status = "CONFLICTING_EVIDENCE"
             status = "fail"
             score_impact = 0

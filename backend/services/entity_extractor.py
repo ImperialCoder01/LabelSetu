@@ -428,6 +428,59 @@ def extract_entities_with_evidence(raw_text: str, normalized_text: Optional[str]
     return detailed
 
 
+COUNTRY_ORIGIN_PREFIXES = [
+    r"(?:country\s*of\s*origin|country\s*of\s*origin\s*code|origin\s*country)\s*[:\.-]?",
+    r"(?:made\s*in|product\s*of|produced\s*in|manufactured\s*in|imported\s*from)\s*[:\.-]?",
+]
+
+ORIGIN_BOUNDARIES = [
+    r"\b(?:manufactured\s*by|manufactured\s*at|mfg\.?\s*by|produced\s*by|made\s*by|manufacturer|factory|packed\s*by|pkd\.?\s*by)\b",
+    r"\b(?:marketed\s*by|marketed\s*at|distributed\s*by|imported\s*by|importer)\b",
+    r"\b(?:customer\s*care|consumer\s*care|care\s*line|toll\s*free|contact\s*us|feedback|email|phone|helpline)\b",
+    r"\b(?:mrp|max\s*retail\s*price|maximum\s*retail\s*price|price)\b",
+    r"\b(?:net\s*wt|net\s*weight|net\s*qty|net\s*quantity|net\s*vol|net\s*content|contents)\b",
+    r"\b(?:mfg\s*date|mfd|manufacturing\s*date|exp|expiry|best\s*before|use\s*by)\b",
+    r"\b(?:batch\s*no|batch|lot\s*no|lot)\b",
+    r"\b(?:fssai|lic\s*no|licence|license)\b",
+    r"\b(?:ingredients|nutrition|nutritional)\b",
+    r"\b(?:usp|unit\s*sale\s*price|unit\s*price|price\s*per)\b",
+    r"\b(?:www\.|http://|https://)\b",
+]
+
+
+def _extract_country_of_origin(text: str) -> Optional[str]:
+    """
+    Extract Country of Origin (e.g. 'Republic of India', 'United States of America', 'India')
+    using explicit origin headers (Country of Origin, Made in, Product of, etc.).
+    Terminates extraction strictly before unrelated packaging fields (Manufactured by, MRP, Net Qty, etc.)
+    to prevent entity contamination.
+    """
+    if not text or not text.strip():
+        return None
+
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+
+    for line in lines:
+        for prefix_pat in COUNTRY_ORIGIN_PREFIXES:
+            match = re.search(prefix_pat, line, re.IGNORECASE)
+            if match:
+                remainder = line[match.end():].strip()
+                remainder = re.sub(r"^[:\.-]+", "", remainder).strip()
+                if not remainder:
+                    continue
+
+                for boundary in ORIGIN_BOUNDARIES:
+                    b_match = re.search(boundary, remainder, re.IGNORECASE)
+                    if b_match:
+                        remainder = remainder[:b_match.start()].strip()
+
+                remainder = re.sub(r"[\.,;\-:]+$", "", remainder).strip()
+                if remainder and len(remainder) >= 2:
+                    return remainder
+
+    return None
+
+
 def extract_entities_from_text(text: str) -> Dict[str, Any]:
     """
     Apply trained entity recognition patterns to OCR extracted text.
@@ -450,6 +503,7 @@ def extract_entities_from_text(text: str) -> Dict[str, Any]:
         "fssai_lic": None,
         "country_of_origin": None,
         "consumer_care": None,
+        "manufacturer_name_address": None,
     }
 
     if not text or not text.strip():
@@ -461,7 +515,6 @@ def extract_entities_from_text(text: str) -> Dict[str, Any]:
         "unit_sale_price": [r"(?:unit\s*sale\s*price|unit\s*price)\s*[:\.-]?\s*([^\n,]+)"],
         "net_quantity": [r"(?:net\s*wt|net\s*weight|net\s*qty|net\s*quantity|net\s*vol)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|gm))"],
         "fssai_lic": [r"(?:fssai|lic)\s*(?:no\.?|num)?\s*[:\.-]?\s*(\d{14})"],
-        "country_of_origin": [r"(?:country\s*of\s*origin|made\s*in|product\s*of)\s*[:\.-]?\s*([a-zA-Z]+)"],
         "consumer_care": [r"(?:customer\s*care|consumer\s*care|care\s*line|toll\s*free)\s*[:\.-]?\s*([^\n,]+)"],
     }
 
@@ -483,9 +536,12 @@ def extract_entities_from_text(text: str) -> Dict[str, Any]:
     # 5. Custom Extractor for Consumer Care Details
     extracted["consumer_care"] = _extract_consumer_care(text)
 
-    # 6. Extract remaining entities
+    # 6. Custom Extractor for Country of Origin
+    extracted["country_of_origin"] = _extract_country_of_origin(text)
+
+    # 7. Extract remaining entities
     for entity_key, regex_list in active_patterns.items():
-        if entity_key in ("net_quantity", "mfg_date", "expiry_date", "manufacturer_name_address", "consumer_care"):
+        if entity_key in ("net_quantity", "mfg_date", "expiry_date", "manufacturer_name_address", "consumer_care", "country_of_origin"):
             continue
 
         for pattern in regex_list:
