@@ -240,7 +240,8 @@ def research_product_information(
     missing_field_ids = [f.get("field_id") for f in missing_fields if f.get("status") == "fail"]
 
     disclaimer_text = (
-        "External information is reference data only and does not verify declarations printed on the scanned package. "
+        "External product information is provided as a reference only. "
+        "It does not prove that these declarations appear on the specific package you scanned. "
         "Statutory compliance is calculated exclusively from uploaded package image evidence."
     )
 
@@ -249,10 +250,19 @@ def research_product_information(
         return {
             "status": "skipped",
             "message": "All mandatory Legal Metrology declarations verified on package. External research not required.",
-            "product_match": {"status": "package_complete", "confidence": 1.0, "confidence_score": 1.0, "matched_by": "package_evidence"},
+            "product_match": {
+                "name": None,
+                "brand": None,
+                "confidence": 1.0,
+                "confidence_level": "package_complete",
+                "confidence_score": 1.0,
+                "matched_by": "package_evidence",
+            },
             "sources": [],
+            "fields": [],
             "external_reference_fields": [],
             "package_verification_required": [],
+            "identity_conflict": False,
             "identity_conflicts": [],
             "recommended_photos": [],
             "disclaimer": disclaimer_text,
@@ -261,7 +271,7 @@ def research_product_information(
     # 1. Attempt Barcode-Based Retrieval First (Highest Accuracy)
     matched_record = None
     has_barcode = False
-    matched_method = "name_and_brand"
+    matched_method = "brand_and_name"
 
     if barcode and barcode.strip():
         try:
@@ -300,7 +310,7 @@ def research_product_information(
             try:
                 matched_record = _search_local_catalog_by_name(query_term)
                 if matched_record:
-                    matched_method = "local_catalog"
+                    matched_method = "local_fmcg_catalog"
             except Exception as exc:
                 logger.debug("Local catalog search error: %s", exc)
 
@@ -314,7 +324,6 @@ def research_product_information(
 
     # 3. Assess Match Confidence
     if not matched_record:
-        # Build package verification required entries
         pkg_req = []
         for fid in missing_field_ids:
             info = PANEL_ACTION_MAP.get(fid, {"panel": "Relevant Panel", "rec": f"Upload image showing {fid}."})
@@ -327,21 +336,26 @@ def research_product_information(
             })
 
         return {
-            "status": "no_match",
-            "message": "No sufficiently reliable external product match found for missing declarations.",
+            "status": "no_reliable_match",
+            "message": "External product information could not be reliably matched to this package.",
             "product_match": {
                 "name": None,
                 "brand": None,
-                "status": "no_match",
-                "confidence": "no_match",
+                "confidence": 0.0,
+                "confidence_level": "no_match",
                 "confidence_score": 0.0,
                 "matched_by": None,
             },
             "sources": [],
+            "fields": [],
             "external_reference_fields": [],
             "package_verification_required": pkg_req,
+            "identity_conflict": False,
             "identity_conflicts": [],
-            "recommended_photos": [r["recommendation"] for r in pkg_req],
+            "recommended_photos": [
+                {"panel": r["recommended_panel"], "reason": r["reason"], "recommendation": r["recommendation"]}
+                for r in pkg_req
+            ],
             "disclaimer": disclaimer_text,
         }
 
@@ -365,32 +379,37 @@ def research_product_information(
             })
 
         return {
-            "status": "low_confidence_rejected",
-            "message": "External search results did not meet confidence threshold for this packaging.",
+            "status": "no_reliable_match",
+            "message": "External product information could not be reliably matched to this package.",
             "product_match": {
                 "name": matched_record.get("product_name"),
                 "brand": matched_record.get("brand"),
-                "status": "low_confidence",
-                "confidence": "low_confidence",
+                "confidence": conf_score,
+                "confidence_level": "low_confidence",
                 "confidence_score": conf_score,
                 "matched_by": matched_method,
             },
             "sources": [],
+            "fields": [],
             "external_reference_fields": [],
             "package_verification_required": pkg_req,
+            "identity_conflict": False,
             "identity_conflicts": [],
-            "recommended_photos": [r["recommendation"] for r in pkg_req],
+            "recommended_photos": [
+                {"panel": r["recommended_panel"], "reason": r["reason"], "recommendation": r["recommendation"]}
+                for r in pkg_req
+            ],
             "disclaimer": disclaimer_text,
         }
 
     # 4. Map Missing Declarations to External Reference Values
     field_mapping = {
-        "manufacturer_name_address": ("manufacturer", "Manufacturer Name & Address"),
-        "country_of_origin": ("country_of_origin", "Country of Origin"),
-        "consumer_care_contact": ("consumer_care", "Consumer Care Contact"),
-        "net_quantity": ("net_quantity", "Net Quantity"),
-        "mrp": ("mrp_reference", "Maximum Retail Price (Reference MRP)"),
-        "unit_sale_price": ("unit_sale_price_reference", "Unit Sale Price (Reference USP)"),
+        "manufacturer_name_address": ("manufacturer", "Reference Manufacturer Name & Address"),
+        "country_of_origin": ("country_of_origin", "Reference Country of Origin"),
+        "consumer_care_contact": ("consumer_care", "Reference Consumer Care Contact"),
+        "net_quantity": ("net_quantity", "Reference Net Quantity"),
+        "mrp": ("mrp_reference", "Reference Maximum Retail Price (MRP)"),
+        "unit_sale_price": ("unit_sale_price_reference", "Reference Unit Sale Price (USP)"),
     }
 
     recovered_fields = []
@@ -445,14 +464,20 @@ def research_product_information(
         "product_match": {
             "name": matched_record.get("product_name"),
             "brand": matched_record.get("brand"),
-            "confidence": conf_status,
+            "confidence": conf_score,
+            "confidence_level": conf_status,
             "confidence_score": conf_score,
             "matched_by": matched_method,
         },
         "sources": sources,
+        "fields": recovered_fields,
         "external_reference_fields": recovered_fields,
         "package_verification_required": package_verification_req,
+        "identity_conflict": len(conflicts) > 0,
         "identity_conflicts": conflicts,
-        "recommended_photos": [r["recommendation"] for r in package_verification_req],
+        "recommended_photos": [
+            {"panel": r["recommended_panel"], "reason": r["reason"], "recommendation": r["recommendation"]}
+            for r in package_verification_req
+        ],
         "disclaimer": disclaimer_text,
     }
