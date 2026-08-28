@@ -234,11 +234,11 @@ function UploadScreen({ onFilesSelected, selectedFiles, onRemoveFile }) {
 
 function ProcessingScreen() {
   const steps = [
+    { label: "Waking up scanning server...", icon: "🔌" },
     { label: "Validating Image Magic Bytes & Content Type...", icon: "🛡️" },
     { label: "Applying OpenCV Enhancement & CLAHE Equalization...", icon: "🔍" },
     { label: "Running Dual OCR Text Extraction Engine...", icon: "📄" },
     { label: "Classifying Package Panels & Quality Analysis...", icon: "📦" },
-    { label: "Verifying Same-Package Identity across Photos...", icon: "🆔" },
     { label: "Aggregating Multi-Image Evidence & Resolving Conflicts...", icon: "⚖️" },
     { label: "Computing Legal Metrology Compliance Score...", icon: "✨" },
   ];
@@ -250,8 +250,11 @@ function ProcessingScreen() {
         <div className="absolute inset-0 rounded-full border-4 border-slate-900 border-t-transparent animate-spin" />
       </div>
       <h3 className="text-lg font-bold text-slate-900 mb-1">Analyzing Packaging Evidence</h3>
-      <p className="text-xs text-slate-500 mb-6">Running multi-stage Legal Metrology verification pipeline...</p>
-      
+      <p className="text-xs text-slate-500 mb-2">Running multi-stage Legal Metrology verification pipeline...</p>
+      <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-5 max-w-xs">
+        ⚠️ First scan may take up to 60 seconds while the server starts up. Please do not close this page.
+      </p>
+
       <div className="space-y-3 w-full max-w-sm text-left">
         {steps.map((step, i) => (
           <div key={i} className="flex items-center gap-3 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-lg border border-slate-200/80 animate-pulse" style={{ animationDelay: (i * 200) + "ms" }}>
@@ -616,11 +619,33 @@ export default function ConsumerDashboard() {
         throw new Error("Authentication session missing. Please sign in again.");
       }
 
+      // ── Step 1: Wake up the Render server before the expensive scan request.
+      // Render free tier spins down after inactivity. The /health ping has no
+      // auth requirement, so it wakes the instance in ~5–30 s without burning
+      // the full OCR timeout budget. If health fails completely, we still
+      // attempt the scan (don't bail early).
+      try {
+        const wakeCtrl = new AbortController();
+        const wakeTimer = setTimeout(() => wakeCtrl.abort(), 15000);
+        await fetch(`${API_BASE}/health`, { signal: wakeCtrl.signal });
+        clearTimeout(wakeTimer);
+      } catch (_) {
+        // Ignore — health ping failure is not fatal; proceed to scan.
+      }
+
       const formData = new FormData();
       selectedFiles.forEach((file) => {
         formData.append("files", file);
       });
       if (capturedBarcode) formData.append("barcode", capturedBarcode);
+
+      // ── Step 2: Submit the actual scan with a generous timeout.
+      // OCR on Render free tier can take up to 90 seconds on cold start.
+      // Without a timeout the browser/Cloudflare may silently abort and
+      // throw TypeError: Failed to fetch, which appears as a connection error.
+      const scanCtrl = new AbortController();
+      const SCAN_TIMEOUT_MS = 120_000; // 2 minutes
+      const scanTimer = setTimeout(() => scanCtrl.abort(), SCAN_TIMEOUT_MS);
 
       let res;
       try {
@@ -630,23 +655,37 @@ export default function ConsumerDashboard() {
             Authorization: `Bearer ${session.access_token}`,
           },
           body: formData,
+          signal: scanCtrl.signal,
         });
       } catch (netErr) {
-        console.error("Browser fetch network/CORS error:", netErr);
-        throw new Error("Browser could not connect to scanning server");
+        clearTimeout(scanTimer);
+        console.error("Scan fetch error:", netErr);
+        if (netErr && netErr.name === "AbortError") {
+          throw new Error(
+            "Scan timed out after 2 minutes. The server may be starting up — please wait 30 seconds and try again."
+          );
+        }
+        // Distinguish a real network/DNS failure from anything else.
+        throw new Error(
+          `Cannot reach scanning server (${netErr.message || "network error"}). ` +
+          "Check your internet connection, then retry. If the error persists, the server may be temporarily unavailable."
+        );
       }
+      clearTimeout(scanTimer);
 
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
         const detailMsg = errBody.detail || errBody.message;
-        if (res.status === 401) throw new Error("Authentication failed");
-        if (res.status === 403) throw new Error("You do not have permission to scan");
-        if (res.status === 404) throw new Error("Scan API endpoint not found");
-        if (res.status === 500) throw new Error("Server error while processing the image");
+        if (res.status === 401) throw new Error("Authentication failed — please sign out and sign back in.");
+        if (res.status === 403) throw new Error(`Permission denied: ${detailMsg || "Your account role does not allow scanning."}`);
+        if (res.status === 404) throw new Error("Scan API endpoint not found (404). Contact support.");
+        if (res.status === 413) throw new Error(`Image too large: ${detailMsg || "Maximum 10 MB per image."}`);
+        if (res.status === 400) throw new Error(`Invalid upload: ${detailMsg || "Bad request."}`);
+        if (res.status === 500) throw new Error(`Server error while processing: ${detailMsg || "Internal server error."}`);
         if (res.status === 502 || res.status === 503 || res.status === 504) {
-          throw new Error("Scanning server temporarily unavailable");
+          throw new Error("Scanning server temporarily unavailable (gateway error). Please retry in 30 seconds.");
         }
-        throw new Error(`Scan failed (${res.status}): ${detailMsg || res.statusText}`);
+        throw new Error(`Scan failed (HTTP ${res.status}): ${detailMsg || res.statusText}`);
       }
 
       const result = await res.json();
