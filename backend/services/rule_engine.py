@@ -273,6 +273,8 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
             "severity": field["severity"],
             "status": status,
             "evidence_status": evidence_status,
+            "source": "IMAGE",
+            "confidence": 0.95 if matches else (0.80 if evidence_status == "CONFIRMED_MISSING" else 0.0),
             "matched_keyword": matches[0]["matched_keyword"] if matches else None,
             "extracted_value": matches[0]["extracted_value"] if matches else None,
             "matched_images": [m["filename"] for m in matches],

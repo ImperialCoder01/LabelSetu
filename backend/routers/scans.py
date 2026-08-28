@@ -93,8 +93,9 @@ async def scan(
                 raise HTTPException(status_code=500, detail=f"OCR failed for image {f.filename}: {exc}")
 
             raw_txt = ocr_res.get("full_text", "")
+            norm_txt = ocr_res.get("normalized_full_text", raw_txt)
             classification = classify_image_content(b_bytes, raw_txt, quality_info)
-            detailed_entities = extract_entities_with_evidence(raw_txt)
+            detailed_entities = extract_entities_with_evidence(raw_txt, norm_txt)
 
             if raw_txt.strip():
                 combined_texts.append(raw_txt)
@@ -103,6 +104,7 @@ async def scan(
                 "image_index": idx,
                 "filename": f.filename,
                 "raw_text": raw_txt,
+                "normalized_text": norm_txt,
                 "quality_info": quality_info,
                 "classification": classification,
                 "ocr_result": ocr_res,

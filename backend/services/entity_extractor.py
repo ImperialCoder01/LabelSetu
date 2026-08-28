@@ -94,47 +94,56 @@ def _extract_net_quantity(text: str) -> Optional[str]:
     return None
 
 
-def extract_entities_with_evidence(text: str) -> Dict[str, Any]:
+def extract_entities_with_evidence(raw_text: str, normalized_text: Optional[str] = None) -> Dict[str, Any]:
     """
     Extract structured entities with complete evidence tracing:
     - value
-    - source ("image" / "barcode_catalog" / "inferred")
-    - evidence (exact raw text snippet matched)
+    - source ("IMAGE" / "BARCODE_CATALOG" / "INFERENCE")
+    - raw_snippet (exact raw OCR text line matched)
+    - normalized_snippet (normalized text line matched)
     - confidence (estimated extraction confidence score)
     - normalization_applied (boolean)
     """
-    simple_extracted = extract_entities_from_text(text)
+    norm_text = normalized_text or raw_text or ""
+    simple_extracted = extract_entities_from_text(norm_text)
     detailed = {}
 
-    lines = [line.strip() for line in (text or "").split("\n") if line.strip()]
+    raw_lines = [line.strip() for line in (raw_text or "").split("\n") if line.strip()]
+    norm_lines = [line.strip() for line in norm_text.split("\n") if line.strip()]
 
     for key, val in simple_extracted.items():
         if val is None:
             detailed[key] = {
                 "value": None,
                 "source": "not_detected",
-                "evidence": None,
+                "raw_snippet": None,
+                "normalized_snippet": None,
                 "confidence": 0.0,
                 "normalization_applied": False,
             }
             continue
 
-        # Find matching line snippet for evidence
-        evidence_snippet = None
-        for line in lines:
+        raw_snippet = None
+        for line in raw_lines:
             if val.lower() in line.lower() or key.replace("_", " ") in line.lower():
-                evidence_snippet = line
+                raw_snippet = line
                 break
 
-        if not evidence_snippet:
-            evidence_snippet = f"Text contains '{val}'"
+        norm_snippet = None
+        for line in norm_lines:
+            if val.lower() in line.lower() or key.replace("_", " ") in line.lower():
+                norm_snippet = line
+                break
+
+        normalization_applied = raw_snippet != norm_snippet if raw_snippet and norm_snippet else False
 
         detailed[key] = {
             "value": val,
-            "source": "image",
-            "evidence": evidence_snippet,
+            "source": "IMAGE",
+            "raw_snippet": raw_snippet or f"Text contains '{val}'",
+            "normalized_snippet": norm_snippet or raw_snippet or f"Text contains '{val}'",
             "confidence": 0.95 if len(val) > 2 else 0.85,
-            "normalization_applied": False,
+            "normalization_applied": normalization_applied,
         }
 
     return detailed
