@@ -65,6 +65,9 @@ async def scan(
     barcode_clean = (barcode or "").strip()
     upload_list = []
 
+    if len(files or []) + (1 if file else 0) > 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 packaging images allowed per scan request.")
+
     if files:
         upload_list.extend(files)
     if file:

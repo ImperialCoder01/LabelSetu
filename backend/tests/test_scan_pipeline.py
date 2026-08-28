@@ -19,8 +19,10 @@ print("==================================================")
 print("1. Generating User Session Token via Supabase Auth")
 print("==================================================")
 
-sb_url = "https://pmcoytoyqzfcbvgvbkro.supabase.co"
-service_role_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBtY295dG95cXpmY2J2Z3Zia3JvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NzY2Mjk3MywiZXhwIjoyMTAzMjM4OTczfQ.eWmhlXW_rgKhhvqyuY7bskW44LeygVo3H0KjqL13_8w"
+from config import settings
+
+sb_url = settings.SUPABASE_URL or "https://pmcoytoyqzfcbvgvbkro.supabase.co"
+service_role_key = settings.SUPABASE_SERVICE_ROLE_KEY or os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 
 auth_url = f"{sb_url}/auth/v1/token?grant_type=password"
 test_email = "consumer_audit@example.com"
