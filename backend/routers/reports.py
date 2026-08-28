@@ -46,6 +46,9 @@ async def create_report(body: ReportCreate, user: dict = Depends(require_role("c
     if not scan_result.data:
         raise HTTPException(status_code=404, detail="Scan not found")
 
+    if scan_result.data.get("user_id") != user["sub"]:
+        raise HTTPException(status_code=403, detail="Access denied: Cannot report a scan belonging to another user")
+
     # Check for duplicate pending report on same scan
     existing = (
         supabase.table("product_reports")
