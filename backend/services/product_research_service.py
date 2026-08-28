@@ -191,7 +191,7 @@ def _search_local_catalog_by_name(query_term: str) -> Optional[Dict[str, Any]]:
     return best_match
 
 
-STOPWORDS = {"company", "pvt", "ltd", "limited", "inc", "corp", "corporation", "india", "global", "llc", "products", "foods", "industries"}
+STOPWORDS = {"company", "pvt", "ltd", "limited", "inc", "corp", "corporation", "india", "global", "llc", "products", "foods", "industries", "brand", "the"}
 
 
 def detect_identity_conflicts(

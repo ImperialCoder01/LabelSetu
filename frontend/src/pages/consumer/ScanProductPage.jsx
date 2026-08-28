@@ -494,13 +494,15 @@ export default function ScanProductPage() {
             );
           })()}
 
-          <div className="card-slate p-6 space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="card-slate p-6 space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-200/80 pb-4">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
                   8 Mandatory Legal Metrology Declarations
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">Click any rule to inspect statutory criteria and evidence</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Statutory evaluation based strictly on user-uploaded package image evidence
+                </p>
               </div>
               <button
                 type="button"
@@ -511,41 +513,94 @@ export default function ScanProductPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {(lastResult.compliance?.fields || []).map((field, idx) => {
-                const isPass = field.status === "pass";
-                const isUnreadable = field.evidence_status === "UNREADABLE";
+            {/* Verified from Your Package */}
+            {(() => {
+              const passedFields = (lastResult.compliance?.fields || []).filter(f => f.status === "pass");
+              if (passedFields.length === 0) return null;
 
-                return (
-                  <div
-                    key={idx}
-                    onClick={() => setActiveRuleDrawer(field)}
-                    className="p-4 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50/70 transition-all cursor-pointer flex items-start justify-between gap-3"
-                  >
-                    <div className="space-y-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                          field.severity === "Critical" ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700"
-                        }`}>
-                          {field.severity || "Rule"}
-                        </span>
-                        <h4 className="text-xs font-bold text-slate-900 truncate">{field.field_name}</h4>
-                      </div>
-
-                      <p className="text-xs text-slate-600 truncate font-mono">
-                        {field.extracted_value ? `"${field.extracted_value}"` : isUnreadable ? "Text unreadable on image" : "Not declared"}
-                      </p>
-                    </div>
-
-                    <span className={`text-[10px] font-extrabold uppercase px-2 py-1 rounded-md flex-shrink-0 ${
-                      isPass ? "badge-compliant" : isUnreadable ? "badge-unreadable" : "badge-violation"
-                    }`}>
-                      {isPass ? "Pass" : isUnreadable ? "Unreadable" : "Missing"}
-                    </span>
+              return (
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <h4 className="text-xs font-black text-emerald-900 uppercase tracking-wide">
+                      Verified from Your Package ({passedFields.length})
+                    </h4>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {passedFields.map((field, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => setActiveRuleDrawer(field)}
+                        className="p-3.5 rounded-xl border border-emerald-200/80 bg-emerald-50/30 hover:bg-emerald-50/60 transition-all cursor-pointer flex items-start justify-between gap-3 shadow-2xs"
+                      >
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                              {field.severity || "Critical"}
+                            </span>
+                            <h5 className="text-xs font-bold text-slate-900 truncate">{field.field_name}</h5>
+                          </div>
+                          <p className="text-xs text-slate-700 truncate font-mono">
+                            "{field.extracted_value}"
+                          </p>
+                        </div>
+                        <span className="text-[10px] font-extrabold uppercase px-2 py-1 rounded-md flex-shrink-0 badge-compliant">
+                          Confirmed
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Not Found in Uploaded Images */}
+            {(() => {
+              const missingFields = (lastResult.compliance?.fields || []).filter(f => f.status !== "pass");
+              if (missingFields.length === 0) return null;
+
+              return (
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                    <h4 className="text-xs font-black text-red-900 uppercase tracking-wide">
+                      Not Found in Uploaded Images ({missingFields.length})
+                    </h4>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {missingFields.map((field, idx) => {
+                      const isUnreadable = field.evidence_status === "UNREADABLE";
+                      return (
+                        <div
+                          key={idx}
+                          onClick={() => setActiveRuleDrawer(field)}
+                          className="p-3.5 rounded-xl border border-red-200/80 bg-red-50/30 hover:bg-red-50/60 transition-all cursor-pointer flex items-start justify-between gap-3 shadow-2xs"
+                        >
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                field.severity === "Critical" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"
+                              }`}>
+                                {field.severity || "Rule"}
+                              </span>
+                              <h5 className="text-xs font-bold text-slate-900 truncate">{field.field_name}</h5>
+                            </div>
+                            <p className="text-xs text-red-700 truncate font-mono">
+                              {isUnreadable ? "Text unreadable on image" : "Not declared on uploaded panel"}
+                            </p>
+                          </div>
+                          <span className={`text-[10px] font-extrabold uppercase px-2 py-1 rounded-md flex-shrink-0 ${
+                            isUnreadable ? "badge-unreadable" : "badge-violation"
+                          }`}>
+                            {isUnreadable ? "Unreadable" : "Missing"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Supplementary Groq AI Analysis & Recommendations */}
