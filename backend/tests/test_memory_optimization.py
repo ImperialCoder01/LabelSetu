@@ -1,7 +1,7 @@
 """
 LABELSETU MEMORY OPTIMIZATION & OCR STABILITY TEST SUITE
 Asserts that image preprocessing downscales oversized photos,
-OCR defaults to lightweight cloud mode, and local reader memory is constrained.
+OCR operates in lightweight cloud mode, and zero local model memory is allocated.
 """
 
 import sys
@@ -20,7 +20,7 @@ import services.ocr_service as ocr_service
 
 class TestMemoryOptimization(unittest.TestCase):
     def test_01_cloud_ocr_is_default_provider(self):
-        """Verify OCR_PROVIDER is configured to 'cloud' to prevent eager PyTorch model loading."""
+        """Verify OCR_PROVIDER is configured to 'cloud' to prevent local model memory allocation."""
         self.assertEqual(settings.OCR_PROVIDER.lower(), "cloud")
 
     def test_02_image_downscaling_caps_large_photos(self):
@@ -45,11 +45,13 @@ class TestMemoryOptimization(unittest.TestCase):
         self.assertIsInstance(enhanced_bytes, bytes)
         self.assertGreater(len(enhanced_bytes), 0)
 
-    def test_04_easyocr_reader_uses_single_language_model(self):
-        """Verify _get_reader loads en-only model to minimize PyTorch RAM footprint."""
+    def test_04_zero_local_model_allocation_and_no_easyocr(self):
+        """Verify ocr_service has zero local model memory footprint and does not import easyocr/torch."""
         import inspect
-        src = inspect.getsource(ocr_service._get_reader)
-        self.assertIn('["en"]', src, "EasyOCR reader should use ['en'] to reduce memory")
+        src = inspect.getsource(ocr_service)
+        self.assertNotIn("import easyocr", src, "ocr_service must not import easyocr")
+        self.assertNotIn("import torch", src, "ocr_service must not import torch")
+        self.assertNotIn("Reader(", src, "ocr_service must not instantiate any local OCR Reader")
 
 
 if __name__ == "__main__":

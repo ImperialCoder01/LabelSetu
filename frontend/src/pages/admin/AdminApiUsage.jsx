@@ -105,7 +105,7 @@ export default function AdminApiUsage() {
               <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs">
                 <span className="text-lg">⚠️</span>
                 <p className="font-medium">
-                  <strong>Quota Warning:</strong> Monthly request volume has exceeded 80% of allocation. Consider switching to local EasyOCR to prevent request rate throttling.
+                  <strong>Quota Warning:</strong> Monthly request volume has exceeded 80% of allocation. Consider upgrading your API allocation to prevent request rate throttling.
                 </p>
               </div>
             )}
@@ -228,14 +228,14 @@ export default function AdminApiUsage() {
             </div>
             <h3 className="text-base font-extrabold text-slate-900">Local OCR Engine Active</h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-              Optical character recognition runs entirely on server compute using EasyOCR (PyTorch). No external API quotas or third-party usage limits apply.
+              Optical character recognition runs entirely on server compute using OCR cloud service. No external API quotas or third-party usage limits apply.
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="card-slate p-5">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Active Engine</span>
-              <p className="text-lg font-black text-emerald-600 mt-1">Local EasyOCR (Self-Hosted)</p>
+              <p className="text-lg font-black text-emerald-600 mt-1">Cloud OCR.space</p>
             </div>
             <div className="card-slate p-5">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Requests Processed</span>

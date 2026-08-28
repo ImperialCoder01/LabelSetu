@@ -60,7 +60,7 @@ app.include_router(webhook.router, prefix="/api/webhook", tags=["Webhook"])
 
 @app.on_event("startup")
 def startup_event():
-    """Preload OCR model at startup when using local provider."""
+    """Application startup initialization."""
     preload_model()
 
 

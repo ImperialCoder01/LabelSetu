@@ -2,7 +2,7 @@
 OCR Router — POST /extract, GET /usage
 
 Accepts an image upload, runs it through the configured OCR provider
-(local EasyOCR or cloud OCR.space), and returns the raw extracted text
+(OCR.space cloud engine), and returns the raw extracted text
 along with per-detection confidence scores.
 
 When OCR_PROVIDER=cloud, every successful /extract call increments

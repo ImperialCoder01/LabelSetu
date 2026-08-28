@@ -41,7 +41,7 @@ LabelSetu is designed around the fundamental principle of **Authoritative Statut
 
 ### 2.2 OCR Service (`backend/services/ocr_service.py`)
 - **Primary**: Cloud OCR engine (OCR.space Tier) with structured token confidence scores.
-- **Fallback**: Local CPU-based EasyOCR when network or quota limits are reached.
+- **Resilience**: Fail-safe structured unavailable handling on cloud network timeouts.
 
 ### 2.3 Entity Extraction (`backend/services/entity_extractor.py`)
 - High-precision regular expressions and NER patterns extracting:

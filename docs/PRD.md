@@ -63,7 +63,7 @@ User Uploaded Images
   ↓
 OpenCV Image Preprocessor (Deskew & CLAHE Contrast)
   ↓
-OCR Engine (Cloud OCR.space with Local EasyOCR Fallback)
+OCR Engine (Cloud OCR.space)
   ↓
 Entity Extractor (Regex & NER Parsing)
   ↓
@@ -88,7 +88,7 @@ React / Vite UI (Evidence Segregation & Telemetry)
 | :--- | :--- | :--- |
 | **Groq AI Timeout / Rate Limit** | Catches exception locally, returns `ai_analysis.status = "unavailable"` | Scan completes (`HTTP 200`), statutory compliance report intact. |
 | **Open Food Facts Outage** | Bounded 6.0s timeout, returns `external_research.status = "unavailable"` | Scan completes (`HTTP 200`), statutory score 100% unaffected. |
-| **Cloud OCR Quota Exhaustion** | Automatically switches to local EasyOCR engine | Scan completes transparently. |
+| **Cloud OCR Quota Exhaustion** | Returns safe structured unavailable result | Handled gracefully without crash. |
 | **Client Network Constraints** | Client-side HTML5 Canvas pre-scaling to 1600px | Prevents memory exhaustion and upload timeouts. |
 
 ---

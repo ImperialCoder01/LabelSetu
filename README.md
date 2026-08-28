@@ -33,7 +33,7 @@ The platform bridges consumers, packaged food brands, and regulatory enforcement
                     (Auto-Deskew, Contrast Enhance)
                                   ↓
                             OCR SERVICE
-                      (Cloud OCR / EasyOCR)
+                      (OCR.space Cloud API)
                                   ↓
                       PACKAGE ENTITY EXTRACTION
                      (Custom Regex & NER Parsing)
@@ -94,7 +94,7 @@ Under the Legal Metrology (Packaged Commodities) Rules, 2011, the deterministic 
 
 - **Frontend**: React 18, Vite, Tailwind CSS, Lucide React, React Router 6 (SPA Rewrite support on Vercel).
 - **Backend**: Python 3.11+, FastAPI, Uvicorn, Pydantic v2.
-- **Computer Vision & OCR**: OpenCV (`cv2`), OCR.space Cloud API, EasyOCR (local fallback), PIL/Pillow.
+- **Computer Vision & OCR**: OpenCV (`cv2`), OCR.space Cloud API, PIL/Pillow.
 - **AI & LLM Inference**: Groq Cloud API (`openai/gpt-oss-20b`).
 - **Database & Authentication**: Supabase (PostgreSQL, Row Level Security, Auth with ES256/HS256 JWT tokens).
 - **External Catalog Integrations**: Open Food Facts API, National FMCG Standard Barcode Registry.

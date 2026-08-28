@@ -234,8 +234,8 @@
       "quotaLimit": "कोटा सीमा",
       "remaining": "शेष",
       "localBadge": "स्थानीय OCR का उपयोग — कोई कोटा सीमा नहीं",
-      "localDesc": "टेक्स्ट निकासी इस सर्वर पर चल रहे EasyOCR द्वारा संचालित है। कोई API कोटा या उपयोग सीमा नहीं है।",
-      "localProvider": "स्थानीय (EasyOCR)",
+      "localDesc": "टेक्स्ट निकासी OCR.space API द्वारा संचालित है।",
+      "localProvider": "क्लाउड (OCR.space)",
       "monthlyRequests": "मासिक अनुरोध",
       "logged": "{{count}} (लॉग)"
     },
