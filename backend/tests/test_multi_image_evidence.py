@@ -29,7 +29,7 @@ class TestMultiImageEvidence(unittest.TestCase):
         }
         report = apply_multi_image_rules([front_img], self.rules)
         self.assertEqual(report["compliance_assessment"], "FRONT_PANEL_ONLY")
-        self.assertEqual(report["overall_score"], 100)  # 0 score penalty for unphotographed back panel!
+        self.assertIsNone(report["overall_score"])  # 0 declarations assessable -> score is None (N/A)
 
         # Check field status
         mrp_field = next(f for f in report["fields"] if f["field_id"] == "mrp")
@@ -123,7 +123,7 @@ class TestMultiImageEvidence(unittest.TestCase):
         }
         report = apply_multi_image_rules([blurry_img], self.rules)
         self.assertEqual(report["compliance_assessment"], "UNREADABLE_IMAGE")
-        self.assertEqual(report["overall_score"], 100)
+        self.assertIsNone(report["overall_score"])
 
     def test_package_mismatch(self):
         """Test package mismatch detection when photos of different products are uploaded together."""

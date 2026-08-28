@@ -309,14 +309,19 @@ function ResultsScreen({ report, onScanAgain }) {
   const manufacturer_mismatch = report.manufacturer_mismatch;
   const duplicate_count = compliance.duplicate_count || 0;
 
-  const score = compliance.overall_score !== undefined && compliance.overall_score !== null ? compliance.overall_score : 100;
+  const score = compliance.overall_score !== undefined && compliance.overall_score !== null ? compliance.overall_score : null;
   const completeness = compliance.verification_completeness || "NO_CONFIRMED_VIOLATION";
+  const isAssessable = score !== null;
 
   let scoreColor = "text-slate-900";
   let scoreStroke = "#10b981"; // Emerald
   let scoreBg = "bg-accent-50 text-accent-900 border-accent-200";
 
-  if (score >= 80) {
+  if (!isAssessable) {
+    scoreColor = "text-amber-700";
+    scoreStroke = "#d97706";
+    scoreBg = "bg-amber-50 text-amber-900 border-amber-200";
+  } else if (score >= 80) {
     scoreColor = "text-accent-700";
     scoreStroke = "#059669";
     scoreBg = "bg-accent-50 text-accent-900 border-accent-200";
@@ -331,7 +336,7 @@ function ResultsScreen({ report, onScanAgain }) {
   }
 
   const dashLen = 326.72;
-  const dashOff = dashLen - (dashLen * score) / 100;
+  const dashOff = isAssessable ? dashLen - (dashLen * score) / 100 : dashLen;
 
   let completenessBadge = "Verification Pending";
   let completenessDesc = "Additional photos may be required for full verification.";
@@ -424,17 +429,19 @@ function ResultsScreen({ report, onScanAgain }) {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className={`text-3xl font-extrabold font-mono ${scoreColor}`}>{score}</span>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">/ 100</span>
+            <span className={`text-3xl font-extrabold font-mono ${scoreColor}`}>{isAssessable ? score : "N/A"}</span>
+            {isAssessable && <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">/ 100</span>}
           </div>
         </div>
 
         <span className={`px-3 py-1 rounded-full text-xs font-bold border ${scoreBg}`}>
-          {score >= 80 ? "Compliant" : score >= 50 ? "Partially Verified" : "Non-Compliant"}
+          {!isAssessable ? "Insufficient Evidence" : score >= 80 ? "Compliant" : score >= 50 ? "Partially Verified" : "Non-Compliant"}
         </span>
 
         <p className="text-xs text-slate-500 mt-2 text-center max-w-sm">
-          {score === 100 && compliance.passed < compliance.total_fields
+          {!isAssessable
+            ? "Compliance Index is N/A because 0 declarations could be assessed from the uploaded photos."
+            : score === 100 && compliance.passed < compliance.total_fields
             ? "100/100 — No confirmed violations found in photographed panels."
             : `Passed Declarations: ${compliance.passed}/${compliance.total_fields}`}
         </p>

@@ -469,10 +469,12 @@ export default function ScanProductPage() {
 
           {(() => {
             const comp = lastResult.compliance || {};
-            const score = comp.overall_score !== undefined && comp.overall_score !== null ? comp.overall_score : 100;
+            const score = comp.overall_score !== undefined && comp.overall_score !== null ? comp.overall_score : null;
             const completeness = comp.verification_completeness || "ASSESSED";
             const coverage = comp.evidence_coverage || "8/8 declarations assessable";
-            const isCompliant = score >= 80;
+            const isAssessable = score !== null;
+            const isCompliant = isAssessable && score >= 80;
+            const isInsufficient = !isAssessable || completeness === "INSUFFICIENT_EVIDENCE" || completeness === "UNREADABLE";
 
             return (
               <div className="card-slate p-6 sm:p-8 bg-gradient-to-br from-slate-900 to-slate-850 text-white shadow-xl">
@@ -480,9 +482,11 @@ export default function ScanProductPage() {
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-md border ${
-                        isCompliant
-                          ? "bg-emerald-950 text-emerald-400 border-emerald-800"
-                          : "bg-red-950 text-red-400 border-red-800"
+                        isInsufficient
+                          ? "bg-amber-950 text-amber-400 border-amber-800"
+                          : isCompliant
+                            ? "bg-emerald-950 text-emerald-400 border-emerald-800"
+                            : "bg-red-950 text-red-400 border-red-800"
                       }`}>
                         {completeness}
                       </span>
@@ -502,8 +506,14 @@ export default function ScanProductPage() {
                   <div className="flex items-center gap-4 bg-slate-800/80 p-4 rounded-2xl border border-slate-700 flex-shrink-0">
                     <div className="text-center">
                       <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Compliance Index</span>
-                      <p className={`text-4xl font-black ${isCompliant ? "text-emerald-400" : "text-red-400"}`}>
-                        {score}<span className="text-xl text-slate-400">/100</span>
+                      <p className={`text-4xl font-black ${
+                        !isAssessable
+                          ? "text-amber-400"
+                          : isCompliant
+                            ? "text-emerald-400"
+                            : "text-red-400"
+                      }`}>
+                        {isAssessable ? score : "N/A"}{isAssessable && <span className="text-xl text-slate-400">/100</span>}
                       </p>
                     </div>
                   </div>
