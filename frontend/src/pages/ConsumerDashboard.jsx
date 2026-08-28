@@ -79,38 +79,70 @@ function UnitPriceComparator() {
   );
 }
 
-function UploadScreen({ onFileSelected }) {
+function UploadScreen({ onFilesSelected, selectedFiles, onRemoveFile }) {
   const { t } = useTranslation();
-  const [preview, setPreview] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef(null);
   const cameraRef = useRef(null);
-  const handleFile = useCallback((file) => {
-    if (!file || !file.type.startsWith("image/")) return;
-    onFileSelected(file);
-    setPreview(URL.createObjectURL(file));
-  }, [onFileSelected]);
-  const handleInputChange = (e) => handleFile(e.target.files?.[0]);
-  const handleDrop = (e) => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files?.[0]); };
-  useEffect(() => { return () => { if (preview) URL.revokeObjectURL(preview); }; }, [preview]);
+
+  const handleFiles = useCallback((files) => {
+    if (!files || files.length === 0) return;
+    const valid = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    onFilesSelected(valid);
+  }, [onFilesSelected]);
+
+  const handleInputChange = (e) => handleFiles(e.target.files);
+  const handleDrop = (e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); };
+
   return (
     <div className="card">
-      <h2 className="text-lg font-semibold text-gray-900 mb-4">Scan a Product Label</h2>
-      {preview ? (
-        <div className="relative mb-4">
-          <img src={preview} alt="Label preview" className="w-full max-h-72 object-contain rounded-lg border border-gray-200 bg-white" />
-          <button onClick={() => { setPreview(null); onFileSelected(null); if (fileRef.current) fileRef.current.value = ""; }} className="absolute top-2 right-2 bg-white/90 hover:bg-white text-gray-600 hover:text-red-600 rounded-full w-8 h-8 flex items-center justify-center shadow-sm transition-colors" title="Remove">&times;</button>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Scan Product Label(s)</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Upload one or multiple photos (e.g. Front + Back packaging panels)</p>
+        </div>
+        {selectedFiles.length > 0 && (
+          <span className="text-xs font-bold px-2.5 py-1 rounded bg-blue-100 text-blue-800">
+            {selectedFiles.length} Photo{selectedFiles.length > 1 ? "s" : ""} Selected
+          </span>
+        )}
+      </div>
+
+      {selectedFiles.length > 0 ? (
+        <div className="space-y-3 mb-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {selectedFiles.map((file, idx) => (
+              <div key={idx} className="relative rounded-lg border border-gray-200 bg-white p-2 flex flex-col items-center">
+                <img src={URL.createObjectURL(file)} alt={`Preview ${idx + 1}`} className="w-full h-28 object-contain rounded mb-1" />
+                <span className="text-[10px] font-mono text-gray-600 truncate w-full text-center">{file.name}</span>
+                <button
+                  onClick={() => onRemoveFile(idx)}
+                  className="absolute top-1 right-1 bg-red-500 hover:bg-red-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs shadow-sm transition-colors"
+                  title="Remove photo"
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="w-full py-2 border border-dashed border-gray-300 hover:border-gray-400 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            + Add Another Packaging Photo (e.g. Side or Back Panel)
+          </button>
         </div>
       ) : (
         <div onClick={() => fileRef.current?.click()} onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={handleDrop} className={"border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors " + (dragOver ? "border-primary-500 bg-primary-50" : "border-gray-300 hover:border-gray-400")}>
           <div className="mx-auto mb-3 w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center">
             <svg className="w-7 h-7 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>
           </div>
-          <p className="text-gray-600 font-medium">{t("consumer.clickToUpload")}</p>
-          <p className="text-sm text-gray-400 mt-1">{t("consumer.fileFormat")}</p>
+          <p className="text-gray-600 font-medium">Click or Drag & Drop Product Photo(s)</p>
+          <p className="text-xs text-gray-400 mt-1">Select 1 or multiple photos (PNG, JPEG, WebP)</p>
         </div>
       )}
-      <input ref={fileRef} type="file" accept="image/*" onChange={handleInputChange} className="hidden" id="file-upload" />
+
+      <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleInputChange} className="hidden" id="file-upload" />
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleInputChange} className="hidden" id="camera-capture" />
       <div className="flex gap-3 mt-4">
         <label htmlFor="camera-capture" className="flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 cursor-pointer transition-colors">{t("consumer.camera")}</label>
@@ -119,13 +151,15 @@ function UploadScreen({ onFileSelected }) {
     </div>
   );
 }
+
 function ProcessingScreen() {
   const { t } = useTranslation();
   const steps = [
-    { label: t("consumer.uploadingImage"), icon: "⬇️" },
-    { label: t("consumer.runningOCR"), icon: "🔍" },
-    { label: t("consumer.applyingRules"), icon: "📊" },
-    { label: t("consumer.computingScore"), icon: "✨" },
+    { label: "Uploading & Validating Image(s)...", icon: "⬇️" },
+    { label: "Running Preprocessing & OCR...", icon: "🔍" },
+    { label: "Classifying Package Panels...", icon: "📦" },
+    { label: "Aggregating Multi-Image Evidence...", icon: "⚖️" },
+    { label: "Computing Legal Metrology Score...", icon: "✨" },
   ];
   return (
     <div className="card flex flex-col items-center py-12">
@@ -133,10 +167,10 @@ function ProcessingScreen() {
         <div className="absolute inset-0 rounded-full border-4 border-gray-200" />
         <div className="absolute inset-0 rounded-full border-4 border-primary-500 border-t-transparent animate-spin" />
       </div>
-      <p className="text-lg font-semibold text-gray-900 mb-6">{t("consumer.analyzingLabel")}</p>
+      <p className="text-lg font-semibold text-gray-900 mb-6">Analyzing Package Evidence...</p>
       <div className="space-y-3 w-full max-w-xs">
         {steps.map((step, i) => (
-          <div key={i} className="flex items-center gap-3 text-sm text-gray-500 animate-pulse" style={{ animationDelay: (i * 400) + "ms" }}>
+          <div key={i} className="flex items-center gap-3 text-sm text-gray-500 animate-pulse" style={{ animationDelay: (i * 300) + "ms" }}>
             <span className="text-base">{step.icon}</span>
             <span>{step.label}</span>
           </div>
@@ -181,7 +215,7 @@ function BarcodeLookupPanel({ barcodeData, mismatch }) {
 function ResultsScreen({ report, onScanAgain }) {
   const { t } = useTranslation();
   if (!report) return null;
-  const { compliance, ocr, barcode_lookup, manufacturer_mismatch, quality_info, classification } = report;
+  const { compliance, ocr, barcode_lookup, manufacturer_mismatch, quality_info, classification, image_details } = report;
   const score = compliance.overall_score;
   const scoreColor = score >= 80 ? "text-green-600" : score >= 50 ? "text-yellow-500" : "text-red-600";
   const scoreBg = score >= 80 ? "bg-green-50" : score >= 50 ? "bg-yellow-50" : "bg-red-50";
@@ -191,28 +225,29 @@ function ResultsScreen({ report, onScanAgain }) {
 
   return (
     <div className="space-y-6">
-      {/* Image Quality & Classification Guidance Cards */}
-      {(quality_info || classification) && (
-        <div className="card bg-blue-50/50 border border-blue-200">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            {classification && (
-              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
-                Panel: {classification.panel_type || classification.classification}
-              </span>
-            )}
-            {quality_info && (
-              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${quality_info.quality_status === "GOOD" ? "bg-green-100 text-green-800" : quality_info.quality_status === "UNREADABLE" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"}`}>
-                Image Quality: {quality_info.quality_status}
-              </span>
-            )}
-          </div>
-          {(classification?.user_guidance || quality_info?.user_guidance) && (
-            <p className="text-xs text-blue-900 mt-1 font-medium">
-              💡 {classification?.user_guidance || quality_info?.user_guidance}
-            </p>
+      {/* Evidence Coverage & Package Panels Header Card */}
+      <div className="card bg-blue-50/50 border border-blue-200">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-900">
+            Evidence Coverage: {compliance.evidence_coverage || `${compliance.passed}/${compliance.total_fields} assessable`}
+          </span>
+          {compliance.captured_panels && (
+            <div className="flex gap-1.5 flex-wrap">
+              {compliance.captured_panels.map((p, idx) => (
+                <span key={idx} className="text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-200/70 text-blue-950">
+                  {p}
+                </span>
+              ))}
+            </div>
           )}
         </div>
-      )}
+
+        {compliance.actions_required && compliance.actions_required.length > 0 && (
+          <div className="mt-2 p-2.5 bg-yellow-50 border border-yellow-200 rounded-lg text-xs text-yellow-900">
+            <span className="font-bold">Required Action:</span> {compliance.actions_required.join(" ")}
+          </div>
+        )}
+      </div>
 
       <div className="card flex flex-col items-center pt-8 pb-6">
         <div className="relative w-32 h-32 mb-4">
@@ -226,8 +261,52 @@ function ResultsScreen({ report, onScanAgain }) {
           </div>
         </div>
         <span className={"px-3 py-1 rounded-full text-sm font-semibold " + scoreBg + " " + scoreColor}>{scoreLabel}</span>
-        <p className="text-xs text-gray-400 mt-2">{t("consumer.fieldsDetected", { passed: compliance.passed, total: compliance.total_fields })}{ocr && <>{" "}&middot; {t("consumer.ocrConfidence", { pct: Math.round(ocr.average_confidence * 100) })}</>}</p>
+        <p className="text-xs text-gray-400 mt-2">Passed Declarations: {compliance.passed}/{compliance.total_fields}</p>
       </div>
+
+      {/* Multi-Image Evidence Checklist */}
+      <div className="card">
+        <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Multi-Image Legal Metrology Evidence</h3>
+        <div className="space-y-3">
+          {compliance.fields.map((field) => {
+            const evStatus = field.evidence_status || (field.status === "pass" ? "CONFIRMED_PRESENT" : "CONFIRMED_MISSING");
+            let badgeBg = "bg-green-100 text-green-800";
+            let icon = "✓";
+            if (evStatus === "CONFIRMED_MISSING") { badgeBg = "bg-red-100 text-red-800"; icon = "✗"; }
+            else if (evStatus === "NOT_VISIBLE") { badgeBg = "bg-blue-100 text-blue-800"; icon = "👁️"; }
+            else if (evStatus === "UNREADABLE") { badgeBg = "bg-yellow-100 text-yellow-800"; icon = "⚠️"; }
+            else if (evStatus === "NOT_DETECTED") { badgeBg = "bg-gray-100 text-gray-700"; icon = "🔍"; }
+            else if (evStatus === "CONFLICTING_EVIDENCE") { badgeBg = "bg-purple-100 text-purple-800"; icon = "⚡"; }
+
+            return (
+              <div key={field.field_id} className={`p-3.5 rounded-lg border transition-colors ${evStatus === "CONFIRMED_PRESENT" ? "bg-green-50/50 border-green-200" : evStatus === "CONFIRMED_MISSING" ? "bg-red-50/50 border-red-200" : "bg-gray-50 border-gray-200"}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-gray-900">{field.field_name}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${badgeBg}`}>
+                        {icon} {evStatus}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">{field.reason || field.description}</p>
+                    {field.extracted_value && (
+                      <p className="text-xs font-mono font-bold text-green-800 mt-1 bg-green-100/70 inline-block px-2 py-0.5 rounded">
+                        Extracted Value: {field.extracted_value}
+                      </p>
+                    )}
+                  </div>
+                  {field.score_impact !== 0 && (
+                    <span className="text-xs font-mono font-bold text-red-600 bg-red-100 px-2 py-0.5 rounded">
+                      {field.score_impact} pts
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      
       {manufacturer_mismatch && !manufacturer_mismatch.match && (
         <div className="p-4 bg-red-50 border-2 border-red-300 rounded-xl flex items-start gap-3">
           <span className="text-2xl">⚠️</span>
@@ -352,7 +431,7 @@ export default function ConsumerDashboard() {
   const [scans, setScans] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [screen, setScreen] = useState("upload");
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [capturedBarcode, setCapturedBarcode] = useState("");
   const [lastResult, setLastResult] = useState(null);
   const [scanError, setScanError] = useState(null);
@@ -370,23 +449,29 @@ export default function ConsumerDashboard() {
     setHistoryLoading(false);
   }
 
+  function handleFilesSelected(newFiles) {
+    setSelectedFiles((prev) => [...prev, ...newFiles]);
+  }
+
+  function handleRemoveFile(idx) {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== idx));
+  }
+
   async function handleScan() {
-    if (!selectedFile && !capturedBarcode) return;
+    if (selectedFiles.length === 0 && !capturedBarcode) return;
     setScreen("processing");
     setScanError(null);
     setLastResult(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      console.log("[AUTH DEBUG] session exists:", Boolean(session));
-      console.log("[AUTH DEBUG] access token exists:", Boolean(session?.access_token));
-      console.log("[AUTH DEBUG] user id exists:", Boolean(session?.user?.id));
-
       if (!session || !session.access_token) {
         throw new Error("Authentication session missing. Please sign in again.");
       }
 
       const formData = new FormData();
-      if (selectedFile) formData.append("file", selectedFile);
+      selectedFiles.forEach((file) => {
+        formData.append("files", file);
+      });
       if (capturedBarcode) formData.append("barcode", capturedBarcode);
 
       let res;
@@ -405,7 +490,6 @@ export default function ConsumerDashboard() {
 
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({}));
-        console.error(`HTTP ${res.status} Response Body:`, errBody);
         const detailMsg = errBody.detail || errBody.message;
         if (res.status === 401) throw new Error("Authentication failed");
         if (res.status === 403) throw new Error("You do not have permission to scan");
@@ -419,7 +503,7 @@ export default function ConsumerDashboard() {
 
       const result = await res.json();
       setLastResult(result);
-      setSelectedFile(null);
+      setSelectedFiles([]);
       setCapturedBarcode("");
       setScreen("results");
       await fetchScans();
@@ -468,7 +552,7 @@ export default function ConsumerDashboard() {
       <div><h1 className="text-2xl font-bold text-gray-900">{t("consumer.title")}</h1><p className="text-gray-500 mt-1">{t("consumer.subtitle")}</p></div>
       {screen === "upload" && (
         <>
-          <UploadScreen onFileSelected={setSelectedFile} />
+          <UploadScreen onFilesSelected={handleFilesSelected} selectedFiles={selectedFiles} onRemoveFile={handleRemoveFile} />
           <div className="card">
             <div className="flex items-center justify-between">
               <div><h3 className="text-sm font-semibold text-gray-900">Barcode Lookup</h3><p className="text-xs text-gray-500 mt-0.5">Scan barcode to cross-reference with Open Food Facts</p></div>
@@ -477,8 +561,8 @@ export default function ConsumerDashboard() {
             {capturedBarcode && (<div className="mt-3 p-2 bg-green-50 rounded-lg flex items-center gap-2"><span className="text-green-600">✓</span><span className="text-sm text-green-700 font-mono">{capturedBarcode}</span><button onClick={() => setCapturedBarcode("")} className="ml-auto text-green-600 hover:text-green-800 text-xs">Clear</button></div>)}
           </div>
           {scanError && <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{scanError}</div>}
-          <button onClick={handleScan} disabled={!selectedFile && !capturedBarcode} className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed text-base py-3">
-            {capturedBarcode ? (selectedFile ? "Scan Package & Cross-Check Barcode" : "Lookup Barcode " + capturedBarcode) : t("consumer.scanLabelBtn")}
+          <button onClick={handleScan} disabled={selectedFiles.length === 0 && !capturedBarcode} className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed text-base py-3">
+            {capturedBarcode ? (selectedFiles.length > 0 ? `Scan ${selectedFiles.length} Packaging Photo(s) & Cross-Check Barcode` : "Lookup Barcode " + capturedBarcode) : (selectedFiles.length > 1 ? `Scan ${selectedFiles.length} Packaging Photos` : t("consumer.scanLabelBtn"))}
           </button>
         </>
       )}

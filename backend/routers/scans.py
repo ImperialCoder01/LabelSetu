@@ -9,12 +9,12 @@ GET   /api/scans/{id}      — get a single scan by ID
 
 import io
 import json
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from database import supabase
 from auth.dependencies import get_current_user, require_role
 from services.ocr_service import extract_text_with_scores
-from services.rule_engine import load_rules, apply_rules
+from services.rule_engine import load_rules, apply_rules, apply_multi_image_rules
 from services.barcode_service import lookup_barcode, detect_manufacturer_mismatch
 from services.image_processor import analyze_image_quality, classify_image_content
 from services.entity_extractor import extract_entities_with_evidence
@@ -24,21 +24,19 @@ router = APIRouter()
 # Load rules once at module level
 _rules = None
 
-# Magic bytes for common image formats
-_IMAGE_SIGNATURES = [
-    b"\x89PNG",            # PNG
-    b"\xff\xd8\xff",      # JPEG
-    b"GIF87a",             # GIF87a
-    b"GIF89a",             # GIF89a
-    b"RIFF",               # WebP (RIFF container)
-    b"BM",                 # BMP
-]
-
 
 def _is_valid_image(data: bytes) -> bool:
     """Check file magic bytes to confirm it is an image."""
     if len(data) < 12:
         return False
+    _IMAGE_SIGNATURES = [
+        b"\x89PNG",            # PNG
+        b"\xff\xd8\xff",      # JPEG
+        b"GIF87a",             # GIF87a
+        b"GIF89a",             # GIF89a
+        b"RIFF",               # WebP (RIFF container)
+        b"BM",                 # BMP
+    ]
     for sig in _IMAGE_SIGNATURES:
         if data[: len(sig)] == sig:
             return True
@@ -52,64 +50,68 @@ def _get_rules() -> dict:
     return _rules
 
 
-# ---------------------------------------------------------------------------
-# POST /scan — combined OCR + rule engine + Supabase save
-# ---------------------------------------------------------------------------
 @router.post("/scan")
 async def scan(
-    file: Optional[UploadFile] = File(None, description="Optional product label image (PNG / JPEG, max 10 MB)"),
+    file: Optional[UploadFile] = File(None, description="Single product label image"),
+    files: Optional[List[UploadFile]] = File(None, description="Multiple product packaging images of the same product"),
     barcode: str = Form(default="", description="Optional barcode for Open Food Facts lookup"),
     user: dict = Depends(require_role("consumer", "brand")),
 ):
     """
-    Upload a product label image and/or scan a barcode to run OCR, apply
-    Legal Metrology rules, compute a compliance score, save to Supabase,
-    and return the full report.
-
-    Supports image-only, barcode-only, or combined image + barcode.
+    Upload one or multiple packaging label images (e.g. Front + Back panels)
+    and/or scan a barcode to run multi-image OCR evidence aggregation, apply
+    Legal Metrology rules, compute a score, save to Supabase, and return report.
     """
     barcode_clean = (barcode or "").strip()
-    image_bytes = b""
+    upload_list = []
 
-    if file and file.filename:
-        if not file.content_type or not file.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail=f"File must be an image (got {file.content_type})")
-        image_bytes = await file.read()
-        if len(image_bytes) > 0:
-            if not _is_valid_image(image_bytes):
-                raise HTTPException(status_code=400, detail="File is not a valid image")
-            if len(image_bytes) > 10 * 1024 * 1024:
-                raise HTTPException(status_code=413, detail="File too large. Max 10 MB.")
+    if files:
+        upload_list.extend(files)
+    if file:
+        upload_list.append(file)
 
-    if len(image_bytes) == 0 and not barcode_clean:
-        raise HTTPException(status_code=400, detail="Please upload a label image or scan a barcode.")
+    image_results = []
+    combined_texts = []
 
-    # ---- Handle OCR, Image Quality & Classification ----
-    ocr_result = {
-        "provider": "none",
-        "enhanced": False,
-        "full_text": "",
-        "extracted_entities": {},
-        "extracted_entities_detailed": {},
-        "detections": [],
-        "average_confidence": 0.0,
-    }
+    for idx, f in enumerate(upload_list, 1):
+        if not f or not f.filename:
+            continue
+        if not f.content_type or not f.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail=f"File {f.filename} must be an image (got {f.content_type})")
 
-    quality_info = {"quality_status": "GOOD", "issues": [], "user_guidance": None}
-    classification = {"classification": "PRODUCT_LABEL", "is_product_label": True, "panel_type": "MIXED_PANEL", "user_guidance": None}
+        b_bytes = await f.read()
+        if len(b_bytes) > 0:
+            if not _is_valid_image(b_bytes):
+                raise HTTPException(status_code=400, detail=f"File {f.filename} is not a valid image format")
+            if len(b_bytes) > 10 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail=f"File {f.filename} is too large. Max 10 MB per image.")
 
-    if len(image_bytes) > 0:
-        quality_info = analyze_image_quality(image_bytes)
-        try:
-            ocr_result = extract_text_with_scores(image_bytes)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=502, detail=f"OCR provider error: {exc}")
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"OCR failed: {exc}")
+            quality_info = analyze_image_quality(b_bytes)
+            try:
+                ocr_res = extract_text_with_scores(b_bytes)
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"OCR failed for image {f.filename}: {exc}")
 
-    full_text = ocr_result.get("full_text", "")
-    classification = classify_image_content(image_bytes, full_text, quality_info)
-    ocr_result["extracted_entities_detailed"] = extract_entities_with_evidence(full_text)
+            raw_txt = ocr_res.get("full_text", "")
+            classification = classify_image_content(b_bytes, raw_txt, quality_info)
+            detailed_entities = extract_entities_with_evidence(raw_txt)
+
+            if raw_txt.strip():
+                combined_texts.append(raw_txt)
+
+            image_results.append({
+                "image_index": idx,
+                "filename": f.filename,
+                "raw_text": raw_txt,
+                "quality_info": quality_info,
+                "classification": classification,
+                "ocr_result": ocr_res,
+                "extracted_entities": ocr_res.get("extracted_entities", {}),
+                "extracted_entities_detailed": detailed_entities,
+            })
+
+    if len(image_results) == 0 and not barcode_clean:
+        raise HTTPException(status_code=400, detail="Please upload at least one label image or scan a barcode.")
 
     barcode_data = None
     manufacturer_mismatch = None
@@ -117,8 +119,9 @@ async def scan(
     if barcode_clean:
         barcode_data = lookup_barcode(barcode_clean)
 
+    full_text = "\n\n".join(combined_texts)
+
     if not full_text and barcode_data and barcode_data.get("found"):
-        # Construct synthetic text representation from registered Open Food Facts data
         b_lines = [
             f"Product Name: {barcode_data.get('product_name', '')}",
             f"Brand / Manufacturer: {barcode_data.get('brand', '')}",
@@ -127,14 +130,23 @@ async def scan(
             f"Net Quantity: {barcode_data.get('quantity', '')}",
         ]
         synthetic_text = "\n".join(l for l in b_lines if l.strip())
-        ocr_result["full_text"] = synthetic_text
-        ocr_result["provider"] = "open_food_facts"
         full_text = synthetic_text
 
-    # ---- Compliance Evaluation ----
-    compliance_report = apply_rules(full_text, _get_rules(), classification=classification, quality_info=quality_info)
+        # Synthetic image result for Open Food Facts barcode
+        image_results.append({
+            "image_index": len(image_results) + 1,
+            "filename": "Open Food Facts Barcode Catalog",
+            "raw_text": synthetic_text,
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "BARCODE_CATALOG", "classification": "BARCODE"},
+            "extracted_entities": {},
+            "extracted_entities_detailed": {},
+        })
 
-    if barcode_data and ocr_result.get("provider") != "open_food_facts":
+    # ---- Multi-Image Compliance Evaluation ----
+    compliance_report = apply_multi_image_rules(image_results, _get_rules())
+
+    if barcode_data and any(img["classification"].get("panel_type") != "BARCODE_CATALOG" for img in image_results):
         manufacturer_mismatch = detect_manufacturer_mismatch(full_text, barcode_data)
         if manufacturer_mismatch and not manufacturer_mismatch["match"]:
             mismatch_field = {
@@ -142,22 +154,23 @@ async def scan(
                 "field_name": "Barcode-Brand Cross-Check",
                 "severity": "Critical",
                 "status": "fail",
-                "semantic_status": "CONFIRMED_MISSING",
+                "evidence_status": "CONFIRMED_MISSING",
                 "matched_keyword": None,
                 "description": manufacturer_mismatch["mismatch_detail"],
+                "reason": "Registered barcode manufacturer does not match packaging text.",
+                "score_impact": -15
             }
             compliance_report["fields"].append(mismatch_field)
             compliance_report["critical_failures"].append(mismatch_field)
             compliance_report["failed"] += 1
             compliance_report["overall_score"] = max(0, compliance_report["overall_score"] - 15)
 
-    # ---- Save to Supabase ----
+    # Save to Supabase
     missing_field_ids = [f["field_id"] for f in compliance_report["fields"] if f["status"] == "fail"]
-
     scan_data = {
         "user_id": user["sub"],
         "image_url": "",
-        "extracted_text": full_text,
+        "extracted_text": full_text[:5000],
         "compliance_score": compliance_report["overall_score"],
         "missing_fields": json.dumps(missing_field_ids),
     }
@@ -170,25 +183,38 @@ async def scan(
         scan_id = None
         saved = False
 
-    # ---- Response ----
+    # First image or aggregated primary metadata
+    primary_ocr = image_results[0]["ocr_result"] if image_results and "ocr_result" in image_results[0] else {
+        "provider": "open_food_facts",
+        "enhanced": False,
+        "full_text": full_text,
+        "extracted_entities": {},
+        "extracted_entities_detailed": {},
+        "detections": [],
+        "average_confidence": 0.0,
+    }
+
     response = {
         "scan_id": scan_id,
-        "ocr": {
-            "provider": ocr_result["provider"],
-            "enhanced": ocr_result.get("enhanced", False),
-            "full_text": full_text,
-            "extracted_entities": ocr_result.get("extracted_entities", {}),
-            "extracted_entities_detailed": ocr_result.get("extracted_entities_detailed", {}),
-            "detections": ocr_result["detections"],
-            "average_confidence": ocr_result["average_confidence"],
-        },
-        "quality_info": quality_info,
-        "classification": classification,
+        "image_count": len(image_results),
+        "ocr": primary_ocr,
+        "image_details": [
+            {
+                "image_index": img["image_index"],
+                "filename": img["filename"],
+                "quality_info": img["quality_info"],
+                "classification": img["classification"],
+                "raw_text": img["raw_text"],
+                "extracted_entities": img["extracted_entities"],
+            }
+            for img in image_results
+        ],
+        "quality_info": image_results[0]["quality_info"] if image_results else {"quality_status": "GOOD"},
+        "classification": image_results[0]["classification"] if image_results else {"classification": "PRODUCT_LABEL"},
         "compliance": compliance_report,
         "saved": saved,
     }
 
-    # Include barcode data if available
     if barcode_data:
         response["barcode_lookup"] = barcode_data
     if manufacturer_mismatch:
