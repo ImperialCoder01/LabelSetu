@@ -145,6 +145,56 @@ Net Wt 400g"""
         self.assertNotIn("MRP", r3["manufacturer_name_address"])
         self.assertNotIn("400g", r3["manufacturer_name_address"])
 
+    def test_multiline_consumer_care_extraction(self):
+        """Test multi-line consumer care extraction and boundary termination."""
+        # Example A: Complete consumer care block
+        t_a = """Customer Care:
+Consumer Care Executive
+1800-123-4567
+care@abcfoods.com
+www.abcfoods.com"""
+        r_a = extract_entities_from_text(t_a)
+        self.assertIn("1800-123-4567", r_a["consumer_care"])
+        self.assertIn("care@abcfoods.com", r_a["consumer_care"])
+
+        # Example B: Manufacturer followed by Customer Care (Clean Separation)
+        t_b = """Manufactured by:
+ABC Foods Pvt. Ltd.
+Plot 14, Industrial Area
+New Delhi - 110020
+Customer Care:
+1800-123-4567
+care@abcfoods.com"""
+        r_b = extract_entities_from_text(t_b)
+        self.assertEqual(r_b["manufacturer_name_address"], "ABC Foods Pvt. Ltd., Plot 14, Industrial Area, New Delhi - 110020")
+        self.assertNotIn("1800-123-4567", r_b["manufacturer_name_address"])
+        self.assertIn("1800-123-4567", r_b["consumer_care"])
+
+        # Example C: Imported by followed by Consumer Care (Clean Separation)
+        t_c = """Imported by:
+XYZ Imports Pvt. Ltd.
+Mumbai
+Consumer Care:
+1800-123-4567
+support@xyz.com"""
+        r_c = extract_entities_from_text(t_c)
+        self.assertNotIn("1800-123-4567", r_c.get("manufacturer_name_address", "") or "")
+        self.assertIn("1800-123-4567", r_c["consumer_care"])
+
+        # Example D: Marketed by followed by Consumer Care followed by MRP (Termination at MRP)
+        t_d = """Marketed by:
+ABC Consumer Products Ltd.
+Mumbai
+Customer Care:
+1800-123-4567
+care@example.com
+MRP ₹200"""
+        r_d = extract_entities_from_text(t_d)
+        self.assertIn("1800-123-4567", r_d["consumer_care"])
+        self.assertNotIn("MRP", r_d["consumer_care"])
+        self.assertNotIn("200", r_d["consumer_care"])
+        self.assertEqual(r_d["mrp"], "200")
+
 
 if __name__ == "__main__":
     unittest.main()

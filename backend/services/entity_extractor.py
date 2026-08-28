@@ -287,6 +287,88 @@ def _extract_manufacturer_name_address(text: str) -> Optional[str]:
     return result if len(result) > 2 else None
 
 
+CONSUMER_CARE_ROLE_PREFIXES = [
+    r"(?:customer\s*care|consumer\s*care|consumer\s*care\s*executive|customer\s*service|care\s*line|care\s*helpline|toll\s*free|contact\s*us|feedback|help\s*line)\s*[:\.-]?",
+]
+
+CONSUMER_CARE_BOUNDARIES = [
+    r"\b(?:manufactured\s*by|manufactured\s*at|manufactured\s*in|mfg\.?\s*by|produced\s*by|made\s*by|manufacturer|factory|packed\s*by|pkd\.?\s*by)\b",
+    r"\b(?:marketed\s*by|marketed\s*at|distributed\s*by|imported\s*by|importer)\b",
+    r"\b(?:mrp|max\s*retail\s*price|maximum\s*retail\s*price|price)\b",
+    r"\b(?:net\s*wt|net\s*weight|net\s*qty|net\s*quantity|net\s*vol|net\s*content|contents)\b",
+    r"\b(?:mfg\s*date|mfd|manufacturing\s*date|exp|expiry|best\s*before|use\s*by)\b",
+    r"\b(?:batch\s*no|batch|lot\s*no|lot)\b",
+    r"\b(?:country\s*of\s*origin|made\s*in|product\s*of)\b",
+    r"\b(?:fssai|lic\s*no|licence|license)\b",
+    r"\b(?:ingredients|nutrition|nutritional)\b",
+    r"\b(?:usp|unit\s*sale\s*price|unit\s*price|price\s*per)\b",
+]
+
+
+def _extract_consumer_care(text: str) -> Optional[str]:
+    """
+    Extract Consumer Care details (Executive, Toll-Free Phone, Email, Website) across multiple lines.
+    Terminates extraction strictly at semantic boundaries (Manufactured by, Marketed by, MRP, Net Qty, etc.)
+    to prevent entity contamination.
+    """
+    if not text or not text.strip():
+        return None
+
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+
+    start_idx = -1
+    prefix_matched = None
+
+    for idx, line in enumerate(lines):
+        for pattern in CONSUMER_CARE_ROLE_PREFIXES:
+            match = re.search(pattern, line, re.IGNORECASE)
+            if match:
+                start_idx = idx
+                prefix_matched = match
+                break
+        if start_idx != -1:
+            break
+
+    collected_parts = []
+
+    if start_idx != -1:
+        start_line = lines[start_idx]
+        after_prefix = start_line[prefix_matched.end():].strip()
+        after_prefix = re.sub(r"^[:\.-]+", "", after_prefix).strip()
+        if after_prefix:
+            collected_parts.append(after_prefix)
+
+        max_lines_to_read = 4
+        for idx in range(start_idx + 1, min(len(lines), start_idx + 1 + max_lines_to_read)):
+            current_line = lines[idx]
+
+            hit_boundary = False
+            for boundary in CONSUMER_CARE_BOUNDARIES:
+                if re.search(boundary, current_line, re.IGNORECASE):
+                    hit_boundary = True
+                    break
+
+            if hit_boundary:
+                break
+
+            if current_line:
+                collected_parts.append(current_line)
+
+    if not collected_parts:
+        match = re.search(r"\b(1800[-\s]?\d{3}[-\s]?\d{4})\b", text)
+        if match:
+            return match.group(1)
+        match = re.search(r"\b([a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9.-]+\.)+[a-zA-Z]{2,})\b", text)
+        if match:
+            return match.group(1)
+        return None
+
+    result = ", ".join(collected_parts)
+    result = re.sub(r"\s*,\s*,", ",", result)
+    result = result.strip(" ,.-")
+    return result if len(result) > 2 else None
+
+
 def extract_entities_with_evidence(raw_text: str, normalized_text: Optional[str] = None) -> Dict[str, Any]:
     """
     Extract structured entities with complete evidence tracing:
@@ -398,9 +480,12 @@ def extract_entities_from_text(text: str) -> Dict[str, Any]:
     # 4. Custom Extractor for Manufacturer Name & Address
     extracted["manufacturer_name_address"] = _extract_manufacturer_name_address(text)
 
-    # 5. Extract remaining entities
+    # 5. Custom Extractor for Consumer Care Details
+    extracted["consumer_care"] = _extract_consumer_care(text)
+
+    # 6. Extract remaining entities
     for entity_key, regex_list in active_patterns.items():
-        if entity_key in ("net_quantity", "mfg_date", "expiry_date", "manufacturer_name_address"):
+        if entity_key in ("net_quantity", "mfg_date", "expiry_date", "manufacturer_name_address", "consumer_care"):
             continue
 
         for pattern in regex_list:
