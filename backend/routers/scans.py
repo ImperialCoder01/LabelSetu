@@ -274,16 +274,42 @@ async def scan(
     t_db_ms = round((time.perf_counter() - t_db_start) * 1000, 2)
     t_total_ms = round((time.perf_counter() - t_start) * 1000, 2)
 
-    # First image or aggregated primary metadata
-    primary_ocr = image_results[0]["ocr_result"] if image_results and "ocr_result" in image_results[0] else {
-        "provider": "open_food_facts",
-        "enhanced": False,
-        "full_text": full_text,
-        "extracted_entities": {},
-        "extracted_entities_detailed": {},
-        "detections": [],
-        "average_confidence": 0.0,
-    }
+    # Aggregate entities across all uploaded images without overwriting valid data with nulls
+    aggregated_entities = {}
+    aggregated_entities_detailed = {}
+    for img in image_results:
+        for k, v in img.get("extracted_entities", {}).items():
+            if v is not None and not aggregated_entities.get(k):
+                aggregated_entities[k] = v
+        for k, v_dict in img.get("extracted_entities_detailed", {}).items():
+            if v_dict and v_dict.get("value") is not None and not aggregated_entities_detailed.get(k, {}).get("value"):
+                aggregated_entities_detailed[k] = v_dict
+
+    detected_product_name = aggregated_entities.get("product_name")
+    detected_brand = aggregated_entities.get("brand")
+
+    # Propagate detected product_name and brand into classification dictionaries
+    for img in image_results:
+        if detected_product_name:
+            img["classification"]["product_name"] = detected_product_name
+        if detected_brand:
+            img["classification"]["brand"] = detected_brand
+
+    # Attach aggregated entities to primary_ocr
+    if image_results and "ocr_result" in image_results[0]:
+        primary_ocr = image_results[0]["ocr_result"]
+        primary_ocr["extracted_entities"] = aggregated_entities
+        primary_ocr["extracted_entities_detailed"] = aggregated_entities_detailed
+    else:
+        primary_ocr = {
+            "provider": "open_food_facts",
+            "enhanced": False,
+            "full_text": full_text,
+            "extracted_entities": aggregated_entities,
+            "extracted_entities_detailed": aggregated_entities_detailed,
+            "detections": [],
+            "average_confidence": 0.0,
+        }
 
     response = {
         "scan_id": scan_id,

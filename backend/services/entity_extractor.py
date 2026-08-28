@@ -4,22 +4,31 @@ Custom Package Label Entity Extractor Service.
 Loads trained weights from backend/models/label_classifier_weights.json
 and performs domain-specific Entity Recognition (NER) on OCR-extracted label text.
 
-Extracts structured entities:
+Extracts structured physical packaging entities:
+  - Product Name / Commodity Name
+  - Brand Name
+  - Product Category / Commodity Type
   - MRP (Max Retail Price)
-  - Unit Sale Price
+  - Unit Sale Price (USP)
+  - Net Quantity / Weight / Volume
   - Manufacturing / Packaging Date
-  - Expiry / Best Before Date
-  - Net Quantity / Weight
-  - FSSAI License Number
+  - Expiry / Best Before / Use By Date
+  - Batch / Lot / Control Number
+  - Manufacturer Name & Complete Address
+  - Packer Name & Address
+  - Importer Name & Address
   - Country of Origin
-  - Consumer Care Contact
+  - Consumer Care / Grievance Helpline Details
+  - FSSAI License Number
+  - Ingredients List
+  - Vegetarian / Non-Vegetarian Declaration
 """
 
 import json
 import re
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple, List
 
 logger = logging.getLogger(__name__)
 
@@ -45,65 +54,6 @@ def _load_model_weights() -> Dict[str, Any]:
             logger.warning("Model weights file not found at %s. Using default patterns.", WEIGHTS_PATH)
             _MODEL_DATA = {}
     return _MODEL_DATA
-
-
-def _extract_net_quantity(text: str) -> Optional[str]:
-    """
-    Extract net quantity with strict priority:
-    1. Explicit Multi-Pack Printed Total (e.g. '2 N x 100 g = 200 g' -> '200 g', '2 x 100 ml = 200 ml' -> '200 ml').
-    2. Explicit Net Quantity declarations (Net Content, Net Quantity, Net Wt, Net Weight, Net Vol, etc.).
-    3. Standalone quantity declarations strictly excluding USP, MRP, Batch numbers, and price per unit lines.
-    
-    Safety Principle:
-    Does NOT calculate inferred totals (e.g. '3 Packs of 50 ml' will NOT become '150 ml') unless an explicit total is printed.
-    """
-    if not text or not text.strip():
-        return None
-
-    # Priority 0: Explicit Multi-Pack Printed Total (e.g., '2 N x 100 g = 200 g', '2 x 100 ml = 200 ml')
-    multi_pack_total_pattern = r"\b(?:\d+\s*[Nn]?\s*[xX*]\s*[\d\.]+\s*(?:g|kg|ml|l|ltr|gm|pcs|pieces|nos)\s*=\s*)([\d\.]+\s*(?:g|kg|ml|l|ltr|gm|pcs|pieces|nos)\b)"
-    match = re.search(multi_pack_total_pattern, text, re.IGNORECASE)
-    if match:
-        val = match.group(1).strip()
-        if not re.search(r"(?:usp|unit\s*sale\s*price|unit\s*price)\s*[:\.-]?\s*" + re.escape(val), text, re.IGNORECASE):
-            return val
-
-    # Priority 1: Explicit prefixes
-    explicit_patterns = [
-        r"(?:net\s*(?:content|contents|quantity|qty|weight|wt|volume|vol)(?:\s*\([^)]*\))?)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|litres|litre|gm|pcs|pieces|nos|n)\b(?:\s*\([\d\.]+\s*(?:g|kg|ml|l|ltr|gm)\))?)",
-        r"(?:net\s*(?:content|contents|quantity|qty|weight|wt|volume|vol)(?:\s*\([^)]*\))?)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|litres|litre|gm|pcs|pieces|nos|n)\b)",
-    ]
-
-    for pattern in explicit_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            val = match.group(1).strip()
-            if not re.search(r"(?:usp|unit\s*sale\s*price|unit\s*selling\s*price|unit\s*price)\s*[:\.-]?\s*" + re.escape(val), text, re.IGNORECASE):
-                return val
-
-    # Priority 2: Standalone quantity (Filtering out lines/fragments with USP/price per unit)
-    lines = text.split("\n")
-    clean_lines = []
-    for line in lines:
-        if not re.search(r"\b(?:usp|unit\s*sale\s*price|unit\s*selling\s*price|unit\s*price|per\s*(?:g|ml|kg|l|ltr)|/\s*(?:g|ml|kg|l|ltr)|batch|lot|mrp|rs\.?|₹)\b", line, re.IGNORECASE):
-            clean_lines.append(line)
-        else:
-            cleaned_line = re.sub(r"(?:usp|unit\s*sale\s*price|unit\s*selling\s*price|unit\s*price)\s*[:\.-]?\s*[^,\n]+", "", line, flags=re.IGNORECASE)
-            cleaned_line = re.sub(r"\b[\d\.]+\s*(?:per|/)\s*(?:g|ml|kg|l|ltr)\b", "", cleaned_line, flags=re.IGNORECASE)
-            cleaned_line = re.sub(r"\b(?:batch|lot|mrp)\s*[:\.-]?\s*[\w\.,]+", "", cleaned_line, flags=re.IGNORECASE)
-            clean_lines.append(cleaned_line)
-
-    clean_text = "\n".join(clean_lines)
-
-    fallback_pattern = r"\b([\d\.]+\s*(?:g|kg|ml|l|ltr|gm))\b"
-    for match in re.finditer(fallback_pattern, clean_text, re.IGNORECASE):
-        val = match.group(1).strip()
-        match_start = match.start()
-        prefix_window = clean_text[max(0, match_start - 30):match_start]
-        if not re.search(r"(?:usp|unit|per|/)\s*$", prefix_window, re.IGNORECASE):
-            return val
-
-    return None
 
 
 MONTH_MAP = {
@@ -143,6 +93,63 @@ SHARED_SEMANTIC_BOUNDARIES = [
     r"\b(?:www\.|http://|https://)\b",
 ]
 
+# Common FMCG category keywords
+CATEGORY_KEYWORDS = [
+    "salt", "butter", "biscuits", "biscuit", "cookies", "cookie", "rusk", "chips", "namkeen",
+    "noodles", "noodle", "pasta", "macaroni", "vermicelli", "sauce", "ketchup", "jam", "spread",
+    "mayonnaise", "oil", "sunflower oil", "mustard oil", "groundnut oil", "soyabean oil", "olive oil",
+    "ghee", "milk", "toned milk", "curd", "dahi", "paneer", "cheese", "cream", "dairy whitener",
+    "tea", "green tea", "coffee", "instant coffee", "juice", "fruit juice", "drink", "beverage",
+    "atta", "wheat flour", "maida", "besan", "rice", "basmati rice", "poha", "suji", "rava", "dalia",
+    "sugar", "honey", "jaggery", "chocolate", "dark chocolate", "candy", "toffee", "wafer",
+    "garam masala", "turmeric powder", "turmeric", "red chilli powder", "chilli powder", "coriander powder",
+    "cumin powder", "spices", "masala", "powder", "soap", "body wash", "hand wash", "detergent",
+    "detergent powder", "washing powder", "shampoo", "conditioner", "hair oil", "toothpaste",
+    "tooth powder", "mouthwash", "face wash", "cream", "lotion", "moisturizer", "sunscreen",
+    "talc", "talcum powder", "deodorant", "perfume", "cleaner", "dishwash", "floor cleaner"
+]
+
+DISCLAIMER_PATTERNS = [
+    r"serving\s*suggestion",
+    r"store\s*in\s*a\s*(?:cool|dry)",
+    r"keep\s*away\s*from\s*direct\s*sunlight",
+    r"images?\s*(?:are\s*)?(?:for\s*)?illustration",
+    r"for\s*illustration\s*purposes?\s*only",
+    r"100%\s*(?:pure|vegetarian|veg|natural|organic|genuine)",
+    r"since\s*\d{4}",
+    r"quality\s*(?:guaranteed|assured|seal)",
+    r"an?\s*iso\s*\d+\s*(?:certified)?",
+    r"registered\s*trademark",
+    r"keep\s*(?:your\s*)?(?:city|environment)\s*clean",
+    r"dispose\s*of\s*properly",
+    r"recycle",
+    r"www\.",
+    r"https?://",
+    r"@[\w\.-]+",
+    r"fssai",
+    r"lic\.?\s*no",
+    r"mrp",
+    r"net\s*(?:wt|weight|qty|quantity|vol|content)",
+    r"mfg|mfd|exp|expiry|best\s*before|use\s*by",
+    r"batch|lot",
+    r"manufactured\s*by|marketed\s*by|packed\s*by|imported\s*by",
+    r"customer\s*care|consumer\s*care|toll\s*free|1800\s*\d+",
+    r"country\s*of\s*origin|made\s*in",
+    r"ingredients?:",
+    r"nutrition(?:al)?\s*(?:facts|information)?",
+    r"usp\s*[:\.-]?\s*(?:rs|₹)",
+]
+
+PRODUCT_NAME_EXPLICIT_PREFIXES = [
+    r"\b(?:product\s*name|productname|product-name|name\s*of\s*(?:the\s*)?(?:product|commodity)|nameofcommodity|commodity\s*name|commodity|item\s*name|generic\s*name|trade\s*name|product\s*description|description)\s*[:\.-]?",
+    r"\b(?:product)\s*[:\.-]",
+    r"\b(?:commodity)\s*[:\.-]",
+]
+
+CORPORATE_SUFFIXES = [
+    r"\b(?:pvt\.?\s*ltd\.?|private\s*limited|ltd\.?|limited|llp|inc\.?|incorporated|corp\.?|corporation|co\.?|company|federation|industries)\b",
+]
+
 
 def _extract_labeled_block(
     text: str,
@@ -154,10 +161,6 @@ def _extract_labeled_block(
 ) -> Optional[str]:
     """
     Shared infrastructure helper to extract a labeled packaging block across single or multiple lines.
-    - Scans all lines matching role_prefixes.
-    - Extracts remainder text on starting line (truncating before any boundary).
-    - Collects up to max_continuation_lines on subsequent lines.
-    - Strictly terminates extraction when encountering any pattern in role_boundaries or shared semantic boundaries.
     """
     if not text or not text.strip():
         return None
@@ -233,8 +236,186 @@ def _extract_labeled_block(
     return None
 
 
-MFG_PREFIX_PATTERN = r"(?:mfg|mfd|manufactured(?![\s\w]*by)|packed|pkd|pkg|dop|date\s*of\s*mfg|date\s*of\s*packing|manufacturing\s*date)\s*(?:date|on)?"
+def clean_product_name(name: str) -> str:
+    """Format and clean a product name string."""
+    name = re.sub(r"\s+", " ", name).strip(" ,.-–—:;")
+    name = re.sub(r"\b(?:net\s*wt|net\s*weight|mrp|rs\.?|₹).*$", "", name, flags=re.IGNORECASE).strip(" ,.-")
+    return name
 
+
+def _extract_product_name(text: str) -> Optional[str]:
+    """
+    Extract product / commodity name from packaging text.
+    Uses explicit labels, brand+category synthesis, and prominent front lines.
+    Never fabricates a product name if evidence is absent.
+    """
+    if not text or not text.strip():
+        return None
+
+    # 1. Explicit declaration header (e.g. 'Product Name: ...', 'Commodity: ...', 'ProductName:')
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    for line in lines:
+        for prefix in PRODUCT_NAME_EXPLICIT_PREFIXES:
+            match = re.search(prefix, line, re.IGNORECASE)
+            if match:
+                remainder = line[match.end():].strip(" :.-")
+                for disc in DISCLAIMER_PATTERNS:
+                    d_match = re.search(r"\b" + disc + r"\b", remainder, re.IGNORECASE)
+                    if d_match:
+                        remainder = remainder[:d_match.start()].strip(" ,.-")
+                if len(remainder) >= 2:
+                    return clean_product_name(remainder)
+
+    # 2. Extract prominent front-panel candidates
+    candidate_lines = []
+    for line in lines:
+        if any(re.search(p, line, re.IGNORECASE) for p in DISCLAIMER_PATTERNS):
+            continue
+        if re.match(r"^[\d\s\.,;:/\-–—₹\$%#@!\(\)\+=\*]+$", line):
+            continue
+        if re.match(r"^\d+\s*(?:g|kg|ml|l|ltr|gm|pcs|pieces|nos)\b", line, re.IGNORECASE):
+            continue
+        if re.match(r"^(?:rs\.?|inr|₹)\s*[\d\.,]+", line, re.IGNORECASE):
+            continue
+
+        words = [w for w in re.findall(r"[a-zA-Z0-9'&\-]+", line) if len(w) > 1 or w.lower() in ("a", "g")]
+        if 1 <= len(words) <= 7:
+            candidate_lines.append((line, words))
+
+    if not candidate_lines:
+        return None
+
+    top_candidates = candidate_lines[:4]
+
+    # Pattern 1: Line 0 already contains brand + category (e.g. "TATA SALT")
+    line0_text, line0_words = top_candidates[0]
+    line0_has_category = any(re.search(r"\b" + re.escape(cat) + r"\b", line0_text, re.IGNORECASE) for cat in CATEGORY_KEYWORDS)
+    if line0_has_category and len(line0_words) >= 2:
+        return clean_product_name(line0_text)
+
+    # Pattern 2: Two consecutive lines forming Brand + Product (e.g. "AMUL" + "Pasteurised Butter")
+    if len(top_candidates) >= 2:
+        line1_text, line1_words = top_candidates[1]
+        line1_has_category = any(re.search(r"\b" + re.escape(cat) + r"\b", line1_text, re.IGNORECASE) for cat in CATEGORY_KEYWORDS)
+        if len(line0_words) <= 2 and (line1_has_category or len(line1_words) <= 3):
+            combined = f"{line0_text} {line1_text}"
+            return clean_product_name(combined)
+
+    # Pattern 3: Any top candidate line containing category
+    for line_text, words in top_candidates:
+        if any(re.search(r"\b" + re.escape(cat) + r"\b", line_text, re.IGNORECASE) for cat in CATEGORY_KEYWORDS):
+            return clean_product_name(line_text)
+
+    # Pattern 4: First clean prominent candidate (2-5 words)
+    for line_text, words in top_candidates:
+        if 2 <= len(words) <= 5:
+            return clean_product_name(line_text)
+
+    # If only 1 word, only accept if >= 4 chars and not a modifier word
+    if len(top_candidates[0][1]) == 1:
+        w = top_candidates[0][1][0]
+        if len(w) >= 4 and w.lower() not in ("free", "pack", "fresh", "crisp", "tasty", "special", "super", "extra", "best", "good"):
+            return clean_product_name(top_candidates[0][0])
+
+    return None
+
+
+def _extract_brand(text: str, product_name: Optional[str] = None) -> Optional[str]:
+    """Extract brand name from explicit label or product name."""
+    if not text:
+        return None
+
+    # 1. Explicit Brand header
+    brand_match = re.search(r"\b(?:brand\s*name|brand)\s*[:\.-]?\s*([a-zA-Z0-9&'\-\s]{2,30})\b", text, re.IGNORECASE)
+    if brand_match:
+        b_val = brand_match.group(1).strip(" ,.-")
+        if b_val and not any(re.search(p, b_val, re.IGNORECASE) for p in DISCLAIMER_PATTERNS):
+            # Clean corporate suffixes
+            for suffix in CORPORATE_SUFFIXES:
+                b_val = re.sub(suffix, "", b_val, flags=re.IGNORECASE).strip(" ,.-")
+            if len(b_val) >= 2:
+                return b_val
+
+    # 2. Extract first token of product name if available
+    if product_name:
+        words = product_name.split()
+        if words and len(words[0]) >= 2:
+            candidate = words[0].strip(" ,.-")
+            for suffix in CORPORATE_SUFFIXES:
+                candidate = re.sub(suffix, "", candidate, flags=re.IGNORECASE).strip(" ,.-")
+            if len(candidate) >= 2:
+                return candidate
+
+    return None
+
+
+def _extract_category(text: str, product_name: Optional[str] = None) -> Optional[str]:
+    """Extract product category / commodity type."""
+    search_space = f"{product_name or ''} {text or ''}".lower()
+    for cat in CATEGORY_KEYWORDS:
+        if re.search(r"\b" + re.escape(cat) + r"\b", search_space):
+            return cat.title()
+    return None
+
+
+def _extract_net_quantity(text: str) -> Optional[str]:
+    """
+    Extract net quantity with strict priority:
+    1. Explicit Multi-Pack Printed Total (e.g. '2 N x 100 g = 200 g' -> '200 g').
+    2. Explicit Net Quantity declarations (Net Content, Net Quantity, Net Wt, Net Weight, etc.).
+    3. Standalone quantity declarations strictly excluding USP, MRP, and Batch lines.
+    """
+    if not text or not text.strip():
+        return None
+
+    # Field-specific contextual O/0 normalization for digits (e.g. 5OO g -> 500 g)
+    clean_text_digits = re.sub(r"(?<=\d)[Oo](?=\s*(?:g|kg|ml|l|ltr|gm|pcs|pieces|nos))", "0", text)
+    clean_text_digits = re.sub(r"(?<=\d)[Oo](?=[Oo]\s*(?:g|kg|ml|l|ltr|gm|pcs|pieces|nos))", "0", clean_text_digits)
+
+    multi_pack_total_pattern = r"\b(?:\d+\s*[Nn]?\s*[xX*]\s*[\d\.]+\s*(?:g|kg|ml|l|ltr|gm|pcs|pieces|nos)\s*=\s*)([\d\.]+\s*(?:g|kg|ml|l|ltr|gm|pcs|pieces|nos)\b)"
+    match = re.search(multi_pack_total_pattern, clean_text_digits, re.IGNORECASE)
+    if match:
+        val = match.group(1).strip()
+        if not re.search(r"(?:usp|unit\s*sale\s*price|unit\s*price)\s*[:\.-]?\s*" + re.escape(val), clean_text_digits, re.IGNORECASE):
+            return val
+
+    explicit_patterns = [
+        r"(?:net\s*(?:content|contents|quantity|qty|weight|wt|volume|vol)(?:\s*\([^)]*\))?)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|litres|litre|gm|pcs|pieces|nos|n)\b(?:\s*\([\d\.]+\s*(?:g|kg|ml|l|ltr|gm)\))?)",
+        r"(?:net\s*(?:content|contents|quantity|qty|weight|wt|volume|vol)(?:\s*\([^)]*\))?)\s*[:\.-]?\s*([\d\.]+\s*(?:g|kg|ml|l|ltr|litres|litre|gm|pcs|pieces|nos|n)\b)",
+    ]
+
+    for pattern in explicit_patterns:
+        match = re.search(pattern, clean_text_digits, re.IGNORECASE)
+        if match:
+            val = match.group(1).strip()
+            if not re.search(r"(?:usp|unit\s*sale\s*price|unit\s*selling\s*price|unit\s*price)\s*[:\.-]?\s*" + re.escape(val), clean_text_digits, re.IGNORECASE):
+                return val
+
+    lines = clean_text_digits.split("\n")
+    clean_lines = []
+    for line in lines:
+        if not re.search(r"\b(?:usp|unit\s*sale\s*price|unit\s*selling\s*price|unit\s*price|per\s*(?:g|ml|kg|l|ltr)|/\s*(?:g|ml|kg|l|ltr)|batch|lot|mrp|rs\.?|₹)\b", line, re.IGNORECASE):
+            clean_lines.append(line)
+        else:
+            cleaned_line = re.sub(r"(?:usp|unit\s*sale\s*price|unit\s*selling\s*price|unit\s*price)\s*[:\.-]?\s*[^,\n]+", "", line, flags=re.IGNORECASE)
+            cleaned_line = re.sub(r"\b[\d\.]+\s*(?:per|/)\s*(?:g|ml|kg|l|ltr)\b", "", cleaned_line, flags=re.IGNORECASE)
+            cleaned_line = re.sub(r"\b(?:batch|lot|mrp)\s*[:\.-]?\s*[\w\.,]+", "", cleaned_line, flags=re.IGNORECASE)
+            clean_lines.append(cleaned_line)
+
+    clean_text = "\n".join(clean_lines)
+
+    fallback_pattern = r"\b([\d\.]+\s*(?:g|kg|ml|l|ltr|gm))\b"
+    for match in re.finditer(fallback_pattern, clean_text, re.IGNORECASE):
+        val = match.group(1).strip()
+        match_start = match.start()
+        prefix_window = clean_text[max(0, match_start - 30):match_start]
+        if not re.search(r"(?:usp|unit|per|/)\s*$", prefix_window, re.IGNORECASE):
+            return val
+
+    return None
+
+
+MFG_PREFIX_PATTERN = r"(?:mfg|mfd|manufactured(?![\s\w]*by)|packed|pkd|pkg|dop|date\s*of\s*mfg|date\s*of\s*packing|manufacturing\s*date)\s*(?:date|on)?"
 MFG_DATE_BOUNDARIES = SHARED_SEMANTIC_BOUNDARIES
 
 
@@ -243,14 +424,12 @@ def _match_date_in_str(s: str) -> Optional[str]:
     if not s or not s.strip():
         return None
 
-    # Textual Month (e.g. DEC 2026, DECEMBER 2026, AUG-2026)
     textual_match = re.search(r"\b([a-zA-Z]{3,9})[\s\.-]+(\d{2,4})\b", s, re.IGNORECASE)
     if textual_match:
         m_str, y_str = textual_match.group(1).strip(), textual_match.group(2).strip()
         if m_str.lower() in MONTH_MAP:
             return f"{m_str.upper()} {y_str}"
 
-    # Numeric Date (e.g. 15/08/2026, 12/2026, 15-08-2026)
     numeric_match = re.search(r"\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{2,4})\b", s, re.IGNORECASE)
     if numeric_match:
         return numeric_match.group(1).strip()
@@ -259,10 +438,7 @@ def _match_date_in_str(s: str) -> Optional[str]:
 
 
 def _extract_mfg_date(text: str) -> Optional[str]:
-    """
-    Extract manufacturing/packaging date from OCR text across single or multi-line declarations.
-    Uses shared extraction infrastructure helper.
-    """
+    """Extract manufacturing/packaging date from OCR text."""
     return _extract_labeled_block(
         text,
         role_prefixes=[MFG_PREFIX_PATTERN],
@@ -273,14 +449,10 @@ def _extract_mfg_date(text: str) -> Optional[str]:
 
 
 def _extract_expiry_date(text: str, mfg_date: Optional[str] = None) -> Tuple[Optional[str], bool]:
-    """
-    Extract expiry date directly from OCR text or calculate from explicit 'Best Before X Months' statement.
-    Returns Tuple[expiry_date_str, is_derived_boolean].
-    """
+    """Extract expiry date directly or calculate from 'Best Before X Months' statement."""
     if not text or not text.strip():
         return None, False
 
-    # Direct Expiry Pattern (Textual or Numeric, e.g. Exp: DEC 2027, Best Before 15/08/2027)
     direct_textual = r"(?:exp|expiry|best\s*before|use\s*by)\s*(?:date|on)?\s*[:\.-]?\s*\b([a-zA-Z]{3,9})[\s\.-]+(\d{2,4})\b"
     match = re.search(direct_textual, text, re.IGNORECASE)
     if match:
@@ -293,12 +465,10 @@ def _extract_expiry_date(text: str, mfg_date: Optional[str] = None) -> Tuple[Opt
     if match:
         return match.group(1).strip(), False
 
-    # Duration Calculation Pattern (e.g., Best Before 12 Months, Best Before:\n12 Months)
     duration_pattern = r"(?:best\s*before|use\s*by|use\s*within|expiry\s*within)\s*[:\.-]?\s*(?:within|of)?\s*(\d{1,2})\s*months?\b"
     match = re.search(duration_pattern, text, re.IGNORECASE)
     if match and mfg_date:
         months_to_add = int(match.group(1))
-        # Check textual mfg_date (e.g., DEC 2026)
         mfg_match = re.match(r"^([a-zA-Z]{3,9})\s+(\d{4})$", mfg_date.strip())
         if mfg_match and mfg_match.group(1).lower() in MONTH_MAP:
             start_m = MONTH_MAP[mfg_match.group(1).lower()]
@@ -309,7 +479,6 @@ def _extract_expiry_date(text: str, mfg_date: Optional[str] = None) -> Tuple[Opt
             month_abbr = INV_MONTH_MAP.get(new_m, f"{new_m:02d}")
             return f"{month_abbr} {new_y}", True
 
-        # Check numeric mfg_date (e.g., 12/2026 or 15/08/2026)
         num_parts = [p for p in re.split(r"[/-]", mfg_date.strip()) if p.isdigit()]
         if len(num_parts) >= 2:
             try:
@@ -330,22 +499,57 @@ def _extract_expiry_date(text: str, mfg_date: Optional[str] = None) -> Tuple[Opt
 MANUFACTURER_ROLE_PREFIXES = [
     r"(?:manufactured\s*(?:&|and|/)\s*packed\s*by|packed\s*(?:&|and|/)\s*manufactured\s*by)\s*[:\.-]?",
     r"(?:manufactured\s*by|manufactured\s*at|manufactured\s*in|mfg\.?\s*by|produced\s*by|made\s*by|manufacturer|factory)\s*[:\.-]?",
-    r"(?:packed\s*by|packed\s*at|packed\s*in|pkd\.?\s*by)\s*[:\.-]?",
 ]
 
 MANUFACTURER_BOUNDARIES = [
-    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"manufactur|packed|pkd", b, re.IGNORECASE)
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"manufactur|produced|made\s*by", b, re.IGNORECASE)
 ]
 
 
 def _extract_manufacturer_name_address(text: str) -> Optional[str]:
-    """
-    Extract Manufacturer/Packer Name & Address using shared extraction infrastructure.
-    """
+    """Extract Manufacturer Name & Complete Address."""
     return _extract_labeled_block(
         text,
         role_prefixes=MANUFACTURER_ROLE_PREFIXES,
         role_boundaries=MANUFACTURER_BOUNDARIES,
+        max_continuation_lines=4
+    )
+
+
+PACKER_ROLE_PREFIXES = [
+    r"(?:packed\s*by|packed\s*at|packed\s*in|pkd\.?\s*by|packer)\s*[:\.-]?",
+]
+
+PACKER_BOUNDARIES = [
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"packed|pkd", b, re.IGNORECASE)
+]
+
+
+def _extract_packer_name_address(text: str) -> Optional[str]:
+    """Extract Packer Name & Address when separate from manufacturer."""
+    return _extract_labeled_block(
+        text,
+        role_prefixes=PACKER_ROLE_PREFIXES,
+        role_boundaries=PACKER_BOUNDARIES,
+        max_continuation_lines=4
+    )
+
+
+IMPORTER_ROLE_PREFIXES = [
+    r"(?:imported\s*by|imported\s*at|imported\s*in|importer)\s*[:\.-]?",
+]
+
+IMPORTER_BOUNDARIES = [
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"imported|importer", b, re.IGNORECASE)
+]
+
+
+def _extract_importer_name_address(text: str) -> Optional[str]:
+    """Extract Importer Name & Address for imported commodities."""
+    return _extract_labeled_block(
+        text,
+        role_prefixes=IMPORTER_ROLE_PREFIXES,
+        role_boundaries=IMPORTER_BOUNDARIES,
         max_continuation_lines=4
     )
 
@@ -360,9 +564,7 @@ CONSUMER_CARE_BOUNDARIES = [
 
 
 def _extract_consumer_care(text: str) -> Optional[str]:
-    """
-    Extract Consumer Care details using shared extraction infrastructure.
-    """
+    """Extract Consumer Care details (Phone, Email, Postal Address)."""
     res = _extract_labeled_block(
         text,
         role_prefixes=CONSUMER_CARE_ROLE_PREFIXES,
@@ -381,11 +583,286 @@ def _extract_consumer_care(text: str) -> Optional[str]:
     return None
 
 
+COUNTRY_ORIGIN_PREFIXES = [
+    r"(?:country\s*of\s*origin|country\s*of\s*origin\s*code|origin\s*country)\s*[:\.-]?",
+    r"(?:made\s*in|product\s*of|produced\s*in|manufactured\s*in|imported\s*from)\s*[:\.-]?",
+]
+
+ORIGIN_BOUNDARIES = SHARED_SEMANTIC_BOUNDARIES
+
+
+def _extract_country_of_origin(text: str) -> Optional[str]:
+    """Extract Country of Origin."""
+    return _extract_labeled_block(
+        text,
+        role_prefixes=COUNTRY_ORIGIN_PREFIXES,
+        role_boundaries=ORIGIN_BOUNDARIES,
+        max_continuation_lines=1
+    )
+
+
+FSSAI_PREFIXES = [
+    r"(?:fssai|lic)\s*(?:no\.?|num|licence|license)?\s*[:\.-]?",
+]
+
+FSSAI_BOUNDARIES = [
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"fssai|lic", b, re.IGNORECASE)
+]
+
+
+def _match_fssai_in_str(s: str) -> Optional[str]:
+    """Helper to check if a string contains a valid 14-digit FSSAI license number."""
+    if not s or not s.strip():
+        return None
+    match = re.search(r"\b(\d{14})\b", s)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _extract_fssai_lic(text: str) -> Optional[str]:
+    """Extract 14-digit FSSAI license number."""
+    res = _extract_labeled_block(
+        text,
+        role_prefixes=FSSAI_PREFIXES,
+        role_boundaries=FSSAI_BOUNDARIES,
+        max_continuation_lines=1,
+        line_validator=_match_fssai_in_str,
+    )
+    if res:
+        return res
+
+    match = re.search(r"\b(\d{14})\b", text)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+MRP_PREFIXES = [
+    r"(?:m\.?r\.?p\.?|max\s*retail\s*price|maximum\s*retail\s*price)\s*[:\.-]?",
+]
+
+MRP_BOUNDARIES = [
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"\bmrp\b|price", b, re.IGNORECASE)
+]
+
+
+def _match_mrp_in_str(s: str) -> Optional[str]:
+    """Helper to check if a string contains a valid price digits value with field-specific normalization."""
+    if not s or not s.strip():
+        return None
+    clean_s = re.sub(r"^(?:m\.?r\.?p\.?|max\s*retail\s*price|maximum\s*retail\s*price|price)\s*[:\.-]?", "", s.strip(), flags=re.IGNORECASE).strip()
+    clean_s = re.sub(r"^(?:rs\.?|₹|inr)\s*", "", clean_s, flags=re.IGNORECASE).strip()
+    clean_s = re.sub(r"/[-\s]*$", "", clean_s).strip()
+    clean_s = re.sub(r"\s*\(.*?\)", "", clean_s).strip()
+
+    # Contextual O/0 and I/1 normalization within numbers
+    clean_s = re.sub(r"(?<=\d)[Oo](?=\d|\.|$)", "0", clean_s)
+    clean_s = re.sub(r"(?<=\.)[Oo](?=\d)", "0", clean_s)
+    clean_s = re.sub(r"^[Oo](?=\d)", "0", clean_s)
+    clean_s = re.sub(r"(?<=\d)[Il|](?=\d|\.|$)", "1", clean_s)
+    clean_s = re.sub(r"(?<=\.)[Il|](?=\d)", "1", clean_s)
+    clean_s = re.sub(r"^[Il|](?=\d)", "1", clean_s)
+
+    match = re.search(r"\b([\d\.,]+)\b", clean_s)
+    if match:
+        val = match.group(1).strip(" ,.-")
+        val = val.replace(",", "")
+        if re.match(r"^\d+(?:\.\d{1,2})?$", val):
+            return val
+    return None
+
+
+def _extract_mrp(text: str) -> Optional[str]:
+    """Extract Maximum Retail Price (MRP)."""
+    return _extract_labeled_block(
+        text,
+        role_prefixes=MRP_PREFIXES,
+        role_boundaries=MRP_BOUNDARIES,
+        max_continuation_lines=1,
+        line_validator=_match_mrp_in_str,
+    )
+
+
+BATCH_PREFIXES = [
+    r"\b(?:batch\s*(?:number|num|no\.?)?|lot\s*(?:number|num|no\.?)?)\b\s*[:\.-]?",
+]
+
+BATCH_BOUNDARIES = [
+    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"batch|lot", b, re.IGNORECASE)
+]
+
+
+def _match_batch_in_str(s: str) -> Optional[str]:
+    """Helper to validate and extract a clean batch/lot number string."""
+    if not s or not s.strip():
+        return None
+    if re.search(r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{2,4})\b", s):
+        return None
+    if re.search(r"\b(?:rs\.?|₹)\s*\d+|\b\d+\s*(?:g|kg|ml|l|ltr|gm)\b", s, re.IGNORECASE):
+        return None
+    if re.search(r"\b1800[-\s]?\d{3}[-\s]?\d{4}\b", s):
+        return None
+
+    match = re.search(r"\b([a-zA-Z0-9\/-]{3,20})\b", s)
+    if match:
+        val = match.group(1).strip(" ,.-")
+        if len(val) >= 3 and val.lower() not in ("date", "mrp", "net", "pack", "code", "rs", "inr"):
+            return val
+    return None
+
+
+def _extract_batch(text: str) -> Optional[str]:
+    """Extract Batch / Lot Number."""
+    return _extract_labeled_block(
+        text,
+        role_prefixes=BATCH_PREFIXES,
+        role_boundaries=BATCH_BOUNDARIES,
+        max_continuation_lines=1,
+        line_validator=_match_batch_in_str,
+    )
+
+
+INGREDIENTS_PREFIXES = [
+    r"(?:ingredients|contains)\s*[:\.-]?",
+]
+
+INGREDIENTS_BOUNDARIES = [
+    r"^\s*(?:mrp|max\s*retail\s*price|net\s*wt|net\s*qty|net\s*quantity|net\s*vol|mfg\s*date|mfd|exp|expiry|best\s*before|use\s*by|batch|lot|fssai|lic\s*no|manufactured\s*by|packed\s*by|marketed\s*by|customer\s*care|consumer\s*care|country\s*of\s*origin|made\s*in)\s*[:\.-]?",
+]
+
+
+def _extract_ingredients(text: str) -> Optional[str]:
+    """Extract Ingredients declaration."""
+    return _extract_labeled_block(
+        text,
+        role_prefixes=INGREDIENTS_PREFIXES,
+        role_boundaries=INGREDIENTS_BOUNDARIES,
+        max_continuation_lines=4,
+    )
+
+
+def _extract_veg_non_veg(text: str) -> Optional[str]:
+    """Extract Vegetarian / Non-Vegetarian declaration symbol text (checking non-veg first)."""
+    if not text:
+        return None
+    if re.search(r"\b(?:non[-\s]*vegetarian|non[-\s]*veg|contains\s*egg|contains\s*meat|contains\s*fish|brown\s*dot|red\s*dot)\b", text, re.IGNORECASE):
+        return "NON_VEGETARIAN"
+    if re.search(r"\b(?:100%\s*vegetarian|100%\s*veg|vegetarian|pure\s*veg|veg\s*logo|green\s*dot)\b", text, re.IGNORECASE):
+        return "VEGETARIAN"
+    return None
+
+
+def extract_entities_from_text(text: str) -> Dict[str, Any]:
+    """
+    Apply trained entity recognition patterns to OCR extracted text.
+    Extracts all physical packaging declarations into a structured dictionary.
+
+    Args:
+        text: Raw or normalized OCR extracted text string.
+
+    Returns:
+        Structured entity dictionary containing detected packaging declarations.
+    """
+    model_data = _load_model_weights()
+    patterns = model_data.get("patterns", {})
+
+    extracted = {
+        "product_name": None,
+        "brand": None,
+        "category": None,
+        "net_quantity": None,
+        "mrp": None,
+        "unit_sale_price": None,
+        "mfg_date": None,
+        "expiry_date": None,
+        "batch_no": None,
+        "manufacturer_name_address": None,
+        "packer_name_address": None,
+        "importer_name_address": None,
+        "country_of_origin": None,
+        "consumer_care": None,
+        "fssai_lic": None,
+        "ingredients": None,
+        "veg_non_veg": None,
+    }
+
+    if not text or not text.strip():
+        return extracted
+
+    # 1. Product Name
+    extracted["product_name"] = _extract_product_name(text)
+
+    # 2. Brand Name
+    extracted["brand"] = _extract_brand(text, extracted["product_name"])
+
+    # 3. Product Category
+    extracted["category"] = _extract_category(text, extracted["product_name"])
+
+    # 4. Net Quantity
+    extracted["net_quantity"] = _extract_net_quantity(text)
+
+    # 5. Manufacturing Date
+    extracted["mfg_date"] = _extract_mfg_date(text)
+
+    # 6. Expiry Date (Direct + Best Before calculation)
+    exp_val, _ = _extract_expiry_date(text, extracted["mfg_date"])
+    extracted["expiry_date"] = exp_val
+
+    # 7. Manufacturer Name & Address
+    extracted["manufacturer_name_address"] = _extract_manufacturer_name_address(text)
+
+    # 8. Packer Name & Address
+    extracted["packer_name_address"] = _extract_packer_name_address(text)
+
+    # 9. Importer Name & Address
+    extracted["importer_name_address"] = _extract_importer_name_address(text)
+
+    # 10. Consumer Care Details
+    extracted["consumer_care"] = _extract_consumer_care(text)
+
+    # 11. Country of Origin
+    extracted["country_of_origin"] = _extract_country_of_origin(text)
+
+    # 12. FSSAI License Number
+    extracted["fssai_lic"] = _extract_fssai_lic(text)
+
+    # 13. MRP
+    extracted["mrp"] = _extract_mrp(text)
+
+    # 14. Batch Number
+    extracted["batch_no"] = _extract_batch(text)
+
+    # 15. Ingredients
+    extracted["ingredients"] = _extract_ingredients(text)
+
+    # 16. Vegetarian / Non-Vegetarian
+    extracted["veg_non_veg"] = _extract_veg_non_veg(text)
+
+    # 17. Unit Sale Price (USP)
+    default_patterns = {
+        "unit_sale_price": [r"(?:unit\s*sale\s*price|unit\s*price)\s*[:\.-]?\s*([^\n,]+)"],
+    }
+    active_patterns = patterns if patterns else default_patterns
+
+    for entity_key, regex_list in active_patterns.items():
+        if extracted.get(entity_key) is not None:
+            continue
+        for pattern in regex_list:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                val = match.group(1) if match.groups() else match.group(0)
+                extracted[entity_key] = val.strip()
+                break
+
+    return extracted
+
+
 def extract_entities_with_evidence(raw_text: str, normalized_text: Optional[str] = None) -> Dict[str, Any]:
     """
     Extract structured entities with complete evidence tracing:
     - value
-    - source ("IMAGE" / "BARCODE_CATALOG" / "INFERENCE")
+    - source ("IMAGE" / "BARCODE_CATALOG" / "INFERENCE" / "not_detected")
     - raw_snippet (exact raw OCR text line matched)
     - normalized_snippet (normalized text line matched)
     - confidence (estimated extraction confidence score)
@@ -438,247 +915,3 @@ def extract_entities_with_evidence(raw_text: str, normalized_text: Optional[str]
         }
 
     return detailed
-
-
-COUNTRY_ORIGIN_PREFIXES = [
-    r"(?:country\s*of\s*origin|country\s*of\s*origin\s*code|origin\s*country)\s*[:\.-]?",
-    r"(?:made\s*in|product\s*of|produced\s*in|manufactured\s*in|imported\s*from)\s*[:\.-]?",
-]
-
-ORIGIN_BOUNDARIES = SHARED_SEMANTIC_BOUNDARIES
-
-
-def _extract_country_of_origin(text: str) -> Optional[str]:
-    """
-    Extract Country of Origin using shared extraction infrastructure.
-    Supports same-line and one-line-separated declarations.
-    """
-    return _extract_labeled_block(
-        text,
-        role_prefixes=COUNTRY_ORIGIN_PREFIXES,
-        role_boundaries=ORIGIN_BOUNDARIES,
-        max_continuation_lines=1
-    )
-
-
-FSSAI_PREFIXES = [
-    r"(?:fssai|lic)\s*(?:no\.?|num|licence|license)?\s*[:\.-]?",
-]
-
-FSSAI_BOUNDARIES = [
-    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"fssai|lic", b, re.IGNORECASE)
-]
-
-
-def _match_fssai_in_str(s: str) -> Optional[str]:
-    """Helper to check if a string contains a valid 14-digit FSSAI license number."""
-    if not s or not s.strip():
-        return None
-    match = re.search(r"\b(\d{14})\b", s)
-    if match:
-        return match.group(1).strip()
-    return None
-
-
-def _extract_fssai_lic(text: str) -> Optional[str]:
-    """
-    Extract 14-digit FSSAI license number using shared extraction infrastructure.
-    Supports same-line (e.g. 'FSSAI Lic. No: 12345678901234') and multi-line declarations (e.g. 'FSSAI Lic. No:\n12345678901234').
-    """
-    res = _extract_labeled_block(
-        text,
-        role_prefixes=FSSAI_PREFIXES,
-        role_boundaries=FSSAI_BOUNDARIES,
-        max_continuation_lines=1,
-        line_validator=_match_fssai_in_str,
-    )
-    if res:
-        return res
-
-    match = re.search(r"\b(\d{14})\b", text)
-    if match:
-        return match.group(1).strip()
-    return None
-
-
-MRP_PREFIXES = [
-    r"(?:m\.?r\.?p\.?|max\s*retail\s*price|maximum\s*retail\s*price)\s*[:\.-]?",
-]
-
-MRP_BOUNDARIES = [
-    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"\bmrp\b|price", b, re.IGNORECASE)
-]
-
-
-def _match_mrp_in_str(s: str) -> Optional[str]:
-    """Helper to check if a string contains a valid price digits value."""
-    if not s or not s.strip():
-        return None
-    clean_s = re.sub(r"^(?:rs\.?|₹|inr)\s*", "", s.strip(), flags=re.IGNORECASE)
-    match = re.search(r"\b([\d\.,]+)\b", clean_s)
-    if match:
-        val = match.group(1).strip(" ,.-")
-        if re.match(r"^\d+(?:\.\d{1,2})?$", val):
-            return val
-    return None
-
-
-def _extract_mrp(text: str) -> Optional[str]:
-    """
-    Extract Maximum Retail Price (MRP) using shared extraction infrastructure.
-    Supports same-line (e.g. 'MRP: ₹200') and multi-line declarations (e.g. 'MRP:\n₹200').
-    """
-    return _extract_labeled_block(
-        text,
-        role_prefixes=MRP_PREFIXES,
-        role_boundaries=MRP_BOUNDARIES,
-        max_continuation_lines=1,
-        line_validator=_match_mrp_in_str,
-    )
-
-
-BATCH_PREFIXES = [
-    r"\b(?:batch\s*(?:number|num|no\.?)?|lot\s*(?:number|num|no\.?)?)\b\s*[:\.-]?",
-]
-
-BATCH_BOUNDARIES = [
-    b for b in SHARED_SEMANTIC_BOUNDARIES if not re.search(r"batch|lot", b, re.IGNORECASE)
-]
-
-
-def _match_batch_in_str(s: str) -> Optional[str]:
-    """Helper to validate and extract a clean batch/lot number string."""
-    if not s or not s.strip():
-        return None
-    if re.search(r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{2,4})\b", s):
-        return None
-    if re.search(r"\b(?:rs\.?|₹)\s*\d+|\b\d+\s*(?:g|kg|ml|l|ltr|gm)\b", s, re.IGNORECASE):
-        return None
-    if re.search(r"\b1800[-\s]?\d{3}[-\s]?\d{4}\b", s):
-        return None
-
-    match = re.search(r"\b([a-zA-Z0-9\/-]{3,20})\b", s)
-    if match:
-        val = match.group(1).strip(" ,.-")
-        if len(val) >= 3 and val.lower() not in ("date", "mrp", "net", "pack", "code"):
-            return val
-    return None
-
-
-def _extract_batch(text: str) -> Optional[str]:
-    """
-    Extract Batch / Lot Number using shared extraction infrastructure.
-    Supports same-line (e.g. 'Batch No: AB123456') and multi-line declarations (e.g. 'Batch No:\nAB123456').
-    """
-    return _extract_labeled_block(
-        text,
-        role_prefixes=BATCH_PREFIXES,
-        role_boundaries=BATCH_BOUNDARIES,
-        max_continuation_lines=1,
-        line_validator=_match_batch_in_str,
-    )
-
-
-INGREDIENTS_PREFIXES = [
-    r"(?:ingredients|contains)\s*[:\.-]?",
-]
-
-INGREDIENTS_BOUNDARIES = [
-    r"^\s*(?:mrp|max\s*retail\s*price|net\s*wt|net\s*qty|net\s*quantity|net\s*vol|mfg\s*date|mfd|exp|expiry|best\s*before|use\s*by|batch|lot|fssai|lic\s*no|manufactured\s*by|packed\s*by|marketed\s*by|customer\s*care|consumer\s*care|country\s*of\s*origin|made\s*in)\s*[:\.-]?",
-]
-
-
-def _extract_ingredients(text: str) -> Optional[str]:
-    """
-    Extract Ingredients declaration across single or multi-line lists using shared extraction infrastructure.
-    Preserves commas, percentages, and parenthetical details while terminating strictly before subsequent declaration headers.
-    """
-    return _extract_labeled_block(
-        text,
-        role_prefixes=INGREDIENTS_PREFIXES,
-        role_boundaries=INGREDIENTS_BOUNDARIES,
-        max_continuation_lines=4,
-    )
-
-
-def extract_entities_from_text(text: str) -> Dict[str, Any]:
-    """
-    Apply trained entity recognition patterns to OCR extracted text.
-
-    Args:
-        text: Raw OCR extracted text string.
-
-    Returns:
-        Structured entity dictionary containing detected label declarations.
-    """
-    model_data = _load_model_weights()
-    patterns = model_data.get("patterns", {})
-
-    extracted = {
-        "mrp": None,
-        "unit_sale_price": None,
-        "mfg_date": None,
-        "expiry_date": None,
-        "net_quantity": None,
-        "fssai_lic": None,
-        "country_of_origin": None,
-        "consumer_care": None,
-        "manufacturer_name_address": None,
-        "batch_no": None,
-        "ingredients": None,
-    }
-
-    if not text or not text.strip():
-        return extracted
-
-    # Fallback default regex patterns if model file is unreadable
-    default_patterns = {
-        "unit_sale_price": [r"(?:unit\s*sale\s*price|unit\s*price)\s*[:\.-]?\s*([^\n,]+)"],
-    }
-
-    active_patterns = patterns if patterns else default_patterns
-
-    # 1. Custom Extractor for Net Quantity
-    extracted["net_quantity"] = _extract_net_quantity(text)
-
-    # 2. Custom Extractor for Manufacturing Date
-    extracted["mfg_date"] = _extract_mfg_date(text)
-
-    # 3. Custom Extractor for Expiry Date (Direct + Best Before calculation)
-    exp_val, _ = _extract_expiry_date(text, extracted["mfg_date"])
-    extracted["expiry_date"] = exp_val
-
-    # 4. Custom Extractor for Manufacturer Name & Address
-    extracted["manufacturer_name_address"] = _extract_manufacturer_name_address(text)
-
-    # 5. Custom Extractor for Consumer Care Details
-    extracted["consumer_care"] = _extract_consumer_care(text)
-
-    # 6. Custom Extractor for Country of Origin
-    extracted["country_of_origin"] = _extract_country_of_origin(text)
-
-    # 7. Custom Extractor for FSSAI License Number
-    extracted["fssai_lic"] = _extract_fssai_lic(text)
-
-    # 8. Custom Extractor for MRP
-    extracted["mrp"] = _extract_mrp(text)
-
-    # 9. Custom Extractor for Batch Number
-    extracted["batch_no"] = _extract_batch(text)
-
-    # 10. Custom Extractor for Ingredients
-    extracted["ingredients"] = _extract_ingredients(text)
-
-    # 11. Extract remaining entities
-    for entity_key, regex_list in active_patterns.items():
-        if entity_key in ("net_quantity", "mfg_date", "expiry_date", "manufacturer_name_address", "consumer_care", "country_of_origin", "fssai_lic", "mrp", "batch_no", "ingredients"):
-            continue
-
-        for pattern in regex_list:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                val = match.group(1) if match.groups() else match.group(0)
-                extracted[entity_key] = val.strip()
-                break
-
-    return extracted

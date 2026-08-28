@@ -1,16 +1,15 @@
 """
-OCR Service — Cloud text extraction via OCR.space.
+OCR Service — OCR.space Cloud Text Extraction & Entity Extraction Pipeline.
 
-Extracts text from packaging images via OCR.space API, applies domain-aware
-contextual text normalization, and runs entity extraction.
+Extracts text from packaging images via OCR.space, enhances image clarity,
+normalizes extracted tokens contextually, and applies entity extraction.
 """
 
-import io
-import re
+import os
 import base64
 import logging
+import re
 from typing import Optional
-
 import httpx
 
 from config import settings
@@ -20,24 +19,14 @@ from services.entity_extractor import extract_entities_from_text
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Cloud OCR (OCR.space) helpers
-# ---------------------------------------------------------------------------
 def _ocr_space_api_key() -> str:
-    """Return the OCR.space API key from settings."""
-    key = settings.OCR_API_KEY
-    if not key:
-        raise RuntimeError(
-            "OCR_API_KEY is not set. "
-            "Get a free key at https://ocr.space/ocrapi/freekey and add it to .env"
-        )
-    return key
+    """Retrieve OCR.space API key from settings or environment."""
+    key = getattr(settings, "OCR_SPACE_API_KEY", "") or getattr(settings, "OCR_API_KEY", "") or os.getenv("OCR_SPACE_API_KEY", "") or os.getenv("OCR_API_KEY", "")
+    return key.strip()
 
 
 def _extract_cloud(image_bytes: bytes) -> str:
-    """
-    Send image bytes to the OCR.space API and return extracted text.
-    """
+    """Send image to OCR.space API and return raw extracted text string."""
     url = "https://api.ocr.space/parse/image"
     b64_image = base64.b64encode(image_bytes).decode("utf-8")
 
@@ -47,7 +36,6 @@ def _extract_cloud(image_bytes: bytes) -> str:
         "isOverlayRequired": "false",
         "OCREngine": "2",
     }
-
     headers = {"apikey": _ocr_space_api_key()}
     logger.info("[OCR] cloud attempt started (payload size: %d bytes)", len(b64_image))
 
@@ -58,21 +46,18 @@ def _extract_cloud(image_bytes: bytes) -> str:
             response.raise_for_status()
 
         result = response.json()
-        parsed_results = result.get("ParsedResults", [])
-        if not parsed_results:
-            logger.warning("[OCR] cloud returned no parsed results: %s", result.get("ErrorMessage"))
-            return ""
-
-        texts = [r.get("ParsedText", "") for r in parsed_results]
-        return " ".join(texts).strip()
-
+        parsed = result.get("ParsedResults", [])
+        if parsed:
+            raw_text = parsed[0].get("ParsedText", "").replace("\r\n", "\n").strip()
+            return raw_text
+        return ""
     except Exception as exc:
         logger.warning("[OCR] cloud failure reason=%s", exc)
         raise
 
 
 def _extract_cloud_with_scores(image_bytes: bytes) -> dict:
-    """Call OCR.space and return detections with confidence scores."""
+    """Call OCR.space and return detections with confidence scores, preserving line breaks."""
     url = "https://api.ocr.space/parse/image"
     b64_image = base64.b64encode(image_bytes).decode("utf-8")
 
@@ -102,28 +87,53 @@ def _extract_cloud_with_scores(image_bytes: bytes) -> dict:
             }
 
         detections = []
+        raw_text_blocks = []
         for block in parsed:
-            text = block.get("ParsedText", "")
-            confidence = 0.95
+            block_text = (block.get("ParsedText") or "").replace("\r\n", "\n").strip()
+            if block_text:
+                raw_text_blocks.append(block_text)
 
-            line_overlay = block.get("LineOverlay", [])
-            if line_overlay:
-                words = line_overlay[0].get("Words", []) if line_overlay else []
-                for w in words:
-                    detections.append({
-                        "text": w.get("WordText", ""),
-                        "confidence": round(float(w.get("WordConf", 0)) / 100.0, 4),
-                        "bbox": None,
-                    })
+            overlay = block.get("TextOverlay") or block.get("LineOverlay") or {}
+            lines_data = []
+            if isinstance(overlay, dict):
+                lines_data = overlay.get("Lines", [])
+            elif isinstance(overlay, list):
+                lines_data = overlay
+
+            if lines_data:
+                for line_item in lines_data:
+                    words = line_item.get("Words", []) if isinstance(line_item, dict) else []
+                    if words:
+                        for w in words:
+                            w_text = w.get("WordText", "")
+                            if w_text.strip():
+                                detections.append({
+                                    "text": w_text.strip(),
+                                    "confidence": round(float(w.get("WordConf", 95.0)) / 100.0, 4),
+                                    "bbox": {
+                                        "left": w.get("Left"),
+                                        "top": w.get("Top"),
+                                        "height": w.get("Height"),
+                                        "width": w.get("Width"),
+                                    } if "Left" in w else None,
+                                })
+                    elif isinstance(line_item, dict) and line_item.get("LineText"):
+                        detections.append({
+                            "text": line_item["LineText"].strip(),
+                            "confidence": 0.95,
+                            "bbox": None,
+                        })
             else:
-                detections.append({
-                    "text": text.strip(),
-                    "confidence": confidence,
-                    "bbox": None,
-                })
+                for line in block_text.split("\n"):
+                    if line.strip():
+                        detections.append({
+                            "text": line.strip(),
+                            "confidence": 0.95,
+                            "bbox": None,
+                        })
 
-        full_text = " ".join(d["text"] for d in detections if d["confidence"] > 0.3)
-        confidences = [d["confidence"] for d in detections]
+        full_text = "\n".join(raw_text_blocks).strip()
+        confidences = [d["confidence"] for d in detections if d.get("confidence")]
         avg = round(sum(confidences) / len(confidences), 4) if confidences else 0.0
 
         return {
