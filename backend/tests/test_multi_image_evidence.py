@@ -235,6 +235,31 @@ class TestMultiImageEvidence(unittest.TestCase):
         self.assertEqual(report["overall_score"], 100)
         self.assertEqual(report["structured_coverage"]["manufacturing_date"], "NOT_VISIBLE")
 
+    def test_whitespace_and_currency_formatting_not_conflicting(self):
+        """Verify '400g' vs '400 g' or 'Rs 28.00' vs '28.00' is recognized as matching evidence, not CONFLICTING_EVIDENCE."""
+        img1 = {
+            "image_index": 1,
+            "filename": "front.jpg",
+            "raw_text": "Pond's Dreamflower 400g MRP Rs 28.00",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "FRONT_PANEL", "classification": "FRONT_PANEL"},
+            "extracted_entities": {"net_quantity": "400g", "mrp": "Rs 28.00"},
+        }
+        img2 = {
+            "image_index": 2,
+            "filename": "back.jpg",
+            "raw_text": "Net Wt.: 400 g MRP 28.00 Made in India",
+            "quality_info": {"quality_status": "GOOD"},
+            "classification": {"panel_type": "BACK_DECLARATION_PANEL", "classification": "BACK_DECLARATION_PANEL"},
+            "extracted_entities": {"net_quantity": "400 g", "mrp": "28.00"},
+        }
+        report = apply_multi_image_rules([img1, img2], self.rules)
+        net_field = next(f for f in report["fields"] if f["field_id"] == "net_quantity")
+        self.assertEqual(net_field["evidence_status"], "CONFIRMED_PRESENT")
+
+        mrp_field = next(f for f in report["fields"] if f["field_id"] == "mrp")
+        self.assertEqual(mrp_field["evidence_status"], "CONFIRMED_PRESENT")
+
 
 if __name__ == "__main__":
     unittest.main()

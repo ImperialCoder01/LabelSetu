@@ -63,6 +63,23 @@ def _check_field(text_lower: str, field: dict) -> dict:
 # -----------------------------------------------------------------------
 # Public API
 # -----------------------------------------------------------------------
+def _canonicalize_field_value(field_id: str, val: Any) -> str:
+    """
+    Canonicalize extracted declaration values for safe multi-image conflict comparison.
+    Normalizes whitespace, currency symbols, and date separators so minor formatting
+    differences (e.g. '400g' vs '400 g', 'Rs 28.00' vs '28.00') do not trigger false conflicts.
+    """
+    if val is None:
+        return ""
+    s = str(val).strip().lower()
+    s_clean = re.sub(r"\s+", "", s)
+    if field_id == "mrp":
+        s_clean = re.sub(r"^(?:rs\.?|₹|inr)\s*", "", s_clean, flags=re.IGNORECASE)
+    elif field_id == "mfg_date":
+        s_clean = s_clean.replace("-", "/")
+    return s_clean
+
+
 def _validate_package_identity(image_results: list) -> dict:
     """
     Validate whether multiple uploaded images belong to the same physical product packaging.
@@ -225,7 +242,9 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
                     "panel_type": panel,
                     "quality_status": q_status
                 })
-                conflicting_values.add(str(display_val).strip().lower())
+                canonical_val = _canonicalize_field_value(field_id, display_val)
+                if canonical_val:
+                    conflicting_values.add(canonical_val)
 
         if len(conflicting_values) > 1 and field_id in ("net_quantity", "mrp", "mfg_date"):
             evidence_status = "CONFLICTING_EVIDENCE"
