@@ -277,14 +277,17 @@ def research_product_information(
         try:
             bc_res = lookup_barcode(barcode.strip())
             if bc_res and bc_res.get("found"):
+                mrp_val = bc_res.get("mrp")
+                mrp_str = f"Rs {mrp_val}" if mrp_val else ""
                 matched_record = {
                     "product_name": bc_res.get("product_name", ""),
                     "brand": bc_res.get("brand", ""),
-                    "manufacturer": bc_res.get("manufacturing_places", ""),
-                    "country_of_origin": bc_res.get("origins") or bc_res.get("countries") or "India",
-                    "net_quantity": bc_res.get("quantity", ""),
-                    "consumer_care": "",
-                    "source_name": "Open Food Facts GTIN Database",
+                    "manufacturer": bc_res.get("manufacturer") or bc_res.get("manufacturing_places", ""),
+                    "country_of_origin": bc_res.get("country_of_origin") or bc_res.get("origins") or bc_res.get("countries") or "India",
+                    "net_quantity": bc_res.get("net_quantity") or bc_res.get("quantity", ""),
+                    "mrp_reference": mrp_str,
+                    "consumer_care": bc_res.get("consumer_care", ""),
+                    "source_name": "National FMCG Catalog / GTIN Database",
                     "source_url": f"https://world.openfoodfacts.org/product/{barcode}",
                     "source_type": "official_database",
                     "matched_by": "gtin",
