@@ -1,10 +1,15 @@
 """
-Groq AI Service — Llama 3 70B LLM Integration for FMCG Package Label Parsing.
+Groq AI Service — LLM Integration for FMCG Package Label Semantic Intelligence.
 
-Uses GROQ_API_KEY (if provided) to analyze raw OCR text, extract Legal Metrology entities
-with 99%+ precision, and generate actionable fix recommendations for brands.
+Uses GROQ_API_KEY to analyze OCR text & entity metadata, providing:
+1. Normalized entity values
+2. Semantic consistency observations & ambiguity detection
+3. Plain-English package explanation
+4. Actionable fix recommendations for Legal Metrology compliance
 
-Falls back gracefully to local entity_extractor if GROQ_API_KEY is not configured.
+NOTE: Statutory compliance pass/fail decisions and scores remain 100% authoritative
+under the deterministic Legal Metrology Rule Engine (services/rule_engine.py).
+Groq AI operates as a non-blocking supplementary intelligence layer.
 """
 
 import json
@@ -16,87 +21,150 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "groq/compound"
+# Fast, low-latency, structured JSON model available on Groq
+GROQ_MODEL = getattr(settings, "GROQ_MODEL", "openai/gpt-oss-20b")
+GROQ_TIMEOUT = 12.0  # Non-blocking timeout in seconds
 
 
 def is_groq_available() -> bool:
-    """Check if GROQ_API_KEY environment variable is configured."""
-    return bool(getattr(settings, "GROQ_API_KEY", None) or getattr(settings, "GROQ_KEY", None))
+    """Check if GROQ_API_KEY is configured in settings or environment."""
+    key = getattr(settings, "GROQ_API_KEY", None) or getattr(settings, "GROQ_KEY", None) or os.getenv("GROQ_API_KEY", "")
+    return bool(key and key.strip())
 
 
 def _get_groq_key() -> str:
-    return getattr(settings, "GROQ_API_KEY", None) or getattr(settings, "GROQ_KEY", None) or ""
+    """Retrieve the Groq API key safely without logging it."""
+    return getattr(settings, "GROQ_API_KEY", None) or getattr(settings, "GROQ_KEY", None) or os.getenv("GROQ_API_KEY", "") or ""
 
 
-def analyze_label_with_groq(ocr_text: str) -> Optional[Dict[str, Any]]:
+def analyze_label_with_groq(
+    ocr_text: str,
+    extracted_entities: Optional[Dict[str, Any]] = None,
+    rules_summary: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
-    Call Groq API (Llama 3 70B) to parse raw OCR text and extract structured
-    Legal Metrology declarations & compliance recommendations.
+    Call Groq API to perform semantic interpretation, normalization, and recommendation generation.
+    Returns a standardized dictionary. Never raises unhandled exceptions.
     """
+    if not is_groq_available():
+        return {
+            "available": False,
+            "status": "unconfigured",
+            "provider": "groq",
+            "message": "Groq AI key not configured. Compliance evaluated using deterministic rule engine.",
+        }
+
     key = _get_groq_key()
-    if not key:
-        return None
+    if not ocr_text or not ocr_text.strip():
+        return {
+            "available": False,
+            "status": "empty_input",
+            "provider": "groq",
+            "message": "No OCR text available for AI analysis.",
+        }
 
-    prompt = f"""You are an expert Legal Metrology (Packaged Commodities) Rules 2011 compliance auditor in India.
-Analyze the following raw OCR text extracted from a consumer product package:
+    # Context snippet for prompt
+    entities_snippet = json.dumps(extracted_entities or {}, default=str)
+    rules_snippet = ""
+    if rules_summary and "fields" in rules_summary:
+        missing = [f["field_name"] for f in rules_summary.get("fields", []) if f.get("status") == "fail"]
+        rules_snippet = f"Rule Engine Missing Declarations: {', '.join(missing) if missing else 'None'}"
 
----
-{ocr_text}
----
+    prompt = f"""You are an expert Legal Metrology (Packaged Commodities) Rules 2011 compliance AI assistant in India.
+Analyze the following packaging OCR text and extracted entity data:
 
-Extract the following 8 mandatory fields if present, and provide fix recommendations:
-1. manufacturer_name_address
-2. product_name
-3. net_quantity
-4. manufacturing_date
-5. mrp
-6. consumer_care_contact
-7. unit_sale_price
-8. country_of_origin
+--- OCR EXTRACTED TEXT ---
+{ocr_text[:3500]}
+--------------------------
+Rule Engine Extracted Context: {entities_snippet}
+{rules_snippet}
 
-Return ONLY a valid JSON object matching this exact schema (no markdown, no code fences):
+Perform semantic interpretation and return ONLY valid JSON matching this schema:
 {{
-  "entities": {{
-    "manufacturer": "string or null",
+  "normalized_entities": {{
     "product_name": "string or null",
+    "manufacturer": "string or null",
     "net_quantity": "string or null",
-    "mfg_date": "string or null",
     "mrp": "string or null",
+    "manufacturing_date": "string or null",
+    "country_of_origin": "string or null",
     "consumer_care": "string or null",
-    "unit_sale_price": "string or null",
-    "country_of_origin": "string or null"
+    "unit_sale_price": "string or null"
   }},
-  "fix_recommendations": [
-    "string recommendation 1",
-    "string recommendation 2"
-  ]
+  "semantic_observations": [
+    "key observation 1 (e.g. font clarity, declaration grouping, multi-pack details)"
+  ],
+  "ambiguous_fields": [
+    "field name if ambiguous, or empty"
+  ],
+  "recommendations": [
+    "actionable brand recommendation 1 for Legal Metrology compliance",
+    "actionable brand recommendation 2"
+  ],
+  "explanation": "concise 2-sentence plain English summary of package label declarations"
 }}"""
 
     payload = {
         "model": GROQ_MODEL,
         "messages": [
-            {"role": "system", "content": "You output strictly valid JSON."},
-            {"role": "user", "content": prompt}
+            {
+                "role": "system",
+                "content": "You are a Legal Metrology packaging compliance AI. Output strictly valid JSON without markdown fences.",
+            },
+            {"role": "user", "content": prompt},
         ],
         "temperature": 0.1,
-        "response_format": {"type": "json_object"}
+        "response_format": {"type": "json_object"},
     }
 
     headers = {
         "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
     }
 
     try:
-        with httpx.Client(timeout=15.0) as client:
+        with httpx.Client(timeout=GROQ_TIMEOUT) as client:
             resp = client.post(GROQ_API_URL, json=payload, headers=headers)
-            resp.raise_for_status()
 
-        res_data = resp.json()
-        content = res_data["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
-        return parsed
+            if resp.status_code == 200:
+                res_json = resp.json()
+                content = res_json.get("choices", [{}])[0].get("message", {}).get("content", "")
+                parsed = json.loads(content)
 
+                return {
+                    "available": True,
+                    "status": "success",
+                    "provider": "groq",
+                    "model": GROQ_MODEL,
+                    "normalized_entities": parsed.get("normalized_entities", {}),
+                    "semantic_observations": parsed.get("semantic_observations", []),
+                    "ambiguous_fields": parsed.get("ambiguous_fields", []),
+                    "recommendations": parsed.get("recommendations", []),
+                    "explanation": parsed.get("explanation", ""),
+                }
+            else:
+                logger.warning("Groq API returned HTTP %s: %s", resp.status_code, resp.text[:200])
+                return {
+                    "available": False,
+                    "status": "api_error",
+                    "http_status": resp.status_code,
+                    "provider": "groq",
+                    "message": "AI analysis temporarily unavailable. Statutory compliance verified via deterministic rule engine.",
+                }
+
+    except httpx.TimeoutException:
+        logger.warning("Groq AI API timed out after %ss (non-blocking).", GROQ_TIMEOUT)
+        return {
+            "available": False,
+            "status": "timeout",
+            "provider": "groq",
+            "message": "AI analysis timed out. Statutory compliance verified via deterministic rule engine.",
+        }
     except Exception as exc:
-        logger.error("Groq AI API analysis failed: %s", exc)
-        return None
+        logger.warning("Groq AI API call failed (non-blocking): %s", exc)
+        return {
+            "available": False,
+            "status": "error",
+            "provider": "groq",
+            "message": "AI analysis unavailable. Statutory compliance verified via deterministic rule engine.",
+        }

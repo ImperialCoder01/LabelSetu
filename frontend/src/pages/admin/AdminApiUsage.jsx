@@ -76,7 +76,7 @@ export default function AdminApiUsage() {
     );
   }
 
-  const { provider, request_count = 0, quota_limit = 25000, usage_percent = 0, warning = false, month = "" } = data || {};
+  const { provider, request_count = 0, quota_limit = 25000, usage_percent = 0, warning = false, month = "", groq_available = true, groq_model = "openai/gpt-oss-20b" } = data || {};
   const isCloud = provider === "cloud";
 
   return (
@@ -154,6 +154,37 @@ export default function AdminApiUsage() {
                 {Math.max(quota_limit - request_count, 0).toLocaleString()}
               </p>
               <p className="text-[11px] text-slate-400 mt-1">Resets 1st of next month</p>
+            </div>
+          </div>
+
+          {/* Groq AI Status Card */}
+          <div className="card-slate p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-base shadow-xs">
+                  🤖
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900">Groq AI Inference Engine</h3>
+                  <p className="text-xs text-slate-500">Semantic interpretation & packaging recommendation pipeline</p>
+                </div>
+              </div>
+              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-extrabold ${
+                groq_available ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-slate-100 text-slate-600 border border-slate-200"
+              }`}>
+                {groq_available ? "ONLINE / ACTIVE" : "OFFLINE / UNCONFIGURED"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 text-xs">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px] block">Active Model</span>
+                <span className="font-bold text-slate-800 font-mono mt-0.5 block">{groq_model}</span>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px] block">Role in Pipeline</span>
+                <span className="font-bold text-slate-800 mt-0.5 block">Supplementary Semantics & Recommendations (Non-Blocking)</span>
+              </div>
             </div>
           </div>
         </>

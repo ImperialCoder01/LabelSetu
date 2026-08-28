@@ -162,6 +162,9 @@ def _increment_api_usage(provider: str) -> None:
 # ---------------------------------------------------------------------------
 # Usage endpoint
 # ---------------------------------------------------------------------------
+from services.ai_service import is_groq_available, GROQ_MODEL
+
+
 class UsageResponse(BaseModel):
     provider: str
     month: str
@@ -169,6 +172,8 @@ class UsageResponse(BaseModel):
     quota_limit: int
     usage_percent: float
     warning: bool
+    groq_available: bool = True
+    groq_model: str = "openai/gpt-oss-20b"
 
 
 @router.get("/usage", response_model=UsageResponse)
@@ -204,6 +209,7 @@ async def get_usage(admin: dict = Depends(require_role("admin"))):
 
     usage_percent = round((request_count / OCR_QUOTA_LIMIT) * 100, 2) if OCR_QUOTA_LIMIT else 0
 
+    groq_active = is_groq_available()
     return UsageResponse(
         provider=provider,
         month=month,
@@ -211,4 +217,6 @@ async def get_usage(admin: dict = Depends(require_role("admin"))):
         quota_limit=OCR_QUOTA_LIMIT,
         usage_percent=usage_percent,
         warning=usage_percent > 80,
+        groq_available=groq_active,
+        groq_model=GROQ_MODEL if groq_active else "None",
     )

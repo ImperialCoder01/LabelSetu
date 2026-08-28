@@ -548,6 +548,106 @@ export default function ScanProductPage() {
             </div>
           </div>
 
+          {/* Supplementary Groq AI Analysis & Recommendations */}
+          {lastResult.ai_analysis && (
+            <div className="card-slate p-6 space-y-4 border-slate-200">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-sm shadow-xs">
+                    🤖
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
+                        Groq AI Semantic Insights & Recommendations
+                      </h3>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-extrabold bg-purple-50 text-purple-700 border border-purple-200">
+                        {lastResult.ai_analysis.model || "Groq LLM"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Supplementary AI intelligence for entity normalization & packaging fix guidance.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {lastResult.ai_analysis.available ? (
+                <div className="space-y-4 pt-1">
+                  {lastResult.ai_analysis.explanation && (
+                    <div className="p-4 rounded-xl bg-purple-50/60 border border-purple-100 text-xs text-purple-950 leading-relaxed">
+                      <strong className="font-bold text-purple-900 block mb-1">AI Package Summary:</strong>
+                      {lastResult.ai_analysis.explanation}
+                    </div>
+                  )}
+
+                  {/* Normalized Entities */}
+                  {lastResult.ai_analysis.normalized_entities && Object.keys(lastResult.ai_analysis.normalized_entities).length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
+                        AI Normalized Declarations
+                      </h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        {Object.entries(lastResult.ai_analysis.normalized_entities).map(([k, v]) => (
+                          <div key={k} className="p-2.5 bg-slate-50 rounded-lg border border-slate-200">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block truncate">
+                              {k.replace(/_/g, " ")}
+                            </span>
+                            <span className="font-semibold text-slate-800 truncate block mt-0.5" title={v || "Not found"}>
+                              {v || <span className="text-slate-400 italic">Not found</span>}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommendations */}
+                  {lastResult.ai_analysis.recommendations && lastResult.ai_analysis.recommendations.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
+                        Actionable Compliance Recommendations
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {lastResult.ai_analysis.recommendations.map((rec, rIdx) => (
+                          <li key={rIdx} className="flex items-start gap-2 text-xs text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                            <span className="text-emerald-600 font-bold">💡</span>
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Semantic Observations */}
+                  {lastResult.ai_analysis.semantic_observations && lastResult.ai_analysis.semantic_observations.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
+                        Semantic Observations
+                      </h4>
+                      <ul className="space-y-1.5">
+                        {lastResult.ai_analysis.semantic_observations.map((obs, oIdx) => (
+                          <li key={oIdx} className="flex items-start gap-2 text-xs text-slate-600 bg-white p-2 rounded-lg border border-slate-200">
+                            <span className="text-slate-400">•</span>
+                            <span>{obs}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 flex items-center gap-2">
+                  <span>ℹ️</span>
+                  <p>
+                    {lastResult.ai_analysis.message ||
+                      "AI analysis temporarily unavailable — Statutory compliance decision completed using deterministic Legal Metrology rules."}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="card-slate p-6 border-slate-200">
             <h3 className="text-sm font-extrabold text-slate-900">Report Non-Compliance Grievance</h3>
             <p className="text-xs text-slate-500 mt-1">

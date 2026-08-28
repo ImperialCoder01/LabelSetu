@@ -18,6 +18,7 @@ from services.rule_engine import load_rules, apply_rules, apply_multi_image_rule
 from services.barcode_service import lookup_barcode, detect_manufacturer_mismatch
 from services.image_processor import analyze_image_quality, classify_image_content
 from services.entity_extractor import extract_entities_with_evidence
+from services.ai_service import analyze_label_with_groq, is_groq_available
 
 router = APIRouter()
 
@@ -170,6 +171,30 @@ async def scan(
             compliance_report["failed"] += 1
             compliance_report["overall_score"] = max(0, compliance_report["overall_score"] - 15)
 
+    # ---- Supplementary Groq AI Analysis (Non-Blocking) ----
+    ai_analysis = None
+    if full_text.strip():
+        try:
+            ai_analysis = analyze_label_with_groq(
+                ocr_text=full_text,
+                extracted_entities=image_results[0].get("extracted_entities") if image_results else {},
+                rules_summary=compliance_report,
+            )
+        except Exception as exc:
+            ai_analysis = {
+                "available": False,
+                "status": "error",
+                "provider": "groq",
+                "message": "AI analysis temporarily unavailable. Statutory compliance verified via deterministic rule engine.",
+            }
+    else:
+        ai_analysis = {
+            "available": False,
+            "status": "no_text",
+            "provider": "groq",
+            "message": "No OCR text detected for AI analysis.",
+        }
+
     # Save to Supabase
     missing_field_ids = [f["field_id"] for f in compliance_report["fields"] if f["status"] == "fail"]
     scan_data = {
@@ -217,6 +242,7 @@ async def scan(
         "quality_info": image_results[0]["quality_info"] if image_results else {"quality_status": "GOOD"},
         "classification": image_results[0]["classification"] if image_results else {"classification": "PRODUCT_LABEL"},
         "compliance": compliance_report,
+        "ai_analysis": ai_analysis,
         "saved": saved,
     }
 
