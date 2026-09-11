@@ -15,6 +15,7 @@ import httpx
 from config import settings
 from services.image_processor import enhance_image_for_ocr
 from services.entity_extractor import extract_entities_from_text
+from services.ocr_orchestrator import orchestrate_extract_text, orchestrate_extract_with_scores
 
 logger = logging.getLogger(__name__)
 
@@ -183,7 +184,7 @@ def extract_text(image: bytes) -> str:
     """
     enhanced_image, _ = enhance_image_for_ocr(image)
     try:
-        return _extract_cloud(enhanced_image)
+        return orchestrate_extract_text(enhanced_image, _extract_cloud)
     except Exception as exc:
         logger.warning("[OCR] Cloud OCR failed (%s)", exc)
         return ""
@@ -197,7 +198,7 @@ def extract_text_with_scores(image: bytes) -> dict:
     """
     enhanced_image, was_enhanced = enhance_image_for_ocr(image)
     try:
-        res = _extract_cloud_with_scores(enhanced_image)
+        res = orchestrate_extract_with_scores(enhanced_image, _extract_cloud_with_scores)
     except Exception as exc:
         logger.warning("[OCR] Cloud OCR failed (%s), returning safe unavailable structure", exc)
         res = {

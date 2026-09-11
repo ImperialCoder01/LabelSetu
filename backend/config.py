@@ -9,8 +9,13 @@ class Settings(BaseSettings):
     SUPABASE_JWT_SECRET: str = ""
 
     # OCR & AI
-    OCR_PROVIDER: str = "cloud"  # 'cloud' (OCR.space)
+    OCR_PROVIDER: str = "ocr_space"  # 'auto' / 'local' / 'ocr_space'
     OCR_API_KEY: str = ""          # OCR.space API key
+    LOCAL_OCR_ENABLED: bool = False
+    LOCAL_OCR_URL: str = "http://127.0.0.1:8001/ocr"
+    LOCAL_OCR_API_KEY: str = "local-secret-key-123"
+    LOCAL_OCR_TIMEOUT_SECONDS: float = 15.0
+    OCR_LOCAL_FALLBACK_TO_CLOUD: bool = True
     GROQ_API_KEY: str = ""         # Groq LLM API Key (optional for Llama 3 70B AI label analysis)
 
     # App
