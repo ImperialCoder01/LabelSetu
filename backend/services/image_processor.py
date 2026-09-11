@@ -221,7 +221,7 @@ def classify_image_content(image_bytes: bytes, raw_text: str, quality_info: dict
     # 1. Screenshot / UI Detection
     screenshot_keywords = [
         "vercel.app", "dashboard", "loading profile", "localhost:", "http://", "https://",
-        "chrome", "firefox", "browser", "window", "tab", "user_uploaded", "select file"
+        "chrome", "firefox", "browser", "window", "user_uploaded", "select file"
     ]
     if any(kw in text_lower for kw in screenshot_keywords):
         return {
@@ -256,7 +256,9 @@ def classify_image_content(image_bytes: bytes, raw_text: str, quality_info: dict
         "निर्माण तिथि", "उत्पादन तिथि", "पैकिंग तिथि",
         "उपभोक्ता सेवा", "ग्राहक सेवा", "हेल्पलाइन",
         "प्रति इकाई विक्रय मूल्य", "प्रति इकाई मूल्य",
-        "उत्पत्ति का देश", "भारत में निर्मित", "बैच नं", "बैच संख्या"
+        "उत्पत्ति का देश", "भारत में निर्मित", "बैच नं", "बैच संख्या",
+        "nutrition facts", "nutritional information", "ingredients", "fssai",
+        "barcode", "manufactured", "marketed", "best before", "expiry date"
     ]
     back_matches = [kw for kw in back_panel_keywords if kw in text_lower]
 
