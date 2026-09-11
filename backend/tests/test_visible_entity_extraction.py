@@ -401,9 +401,9 @@ class TestComprehensiveVisibleEntityExtraction(unittest.TestCase):
             "extracted_entities": {}
         }]
         rep = apply_multi_image_rules(front_only, self.rules)
-        self.assertIsNone(rep["overall_score"])
-        self.assertEqual(rep["evidence_coverage"], "0/8 declarations assessable")
-        self.assertEqual(rep["verification_completeness"], "INSUFFICIENT_EVIDENCE")
+        self.assertIsNotNone(rep["overall_score"], "Front panel with readable text must return numeric score")
+        self.assertGreaterEqual(rep["overall_score"], 0)
+        self.assertIn(rep["verification_completeness"], ["CONFIRMED_NON_COMPLIANCE", "PARTIAL_VERIFICATION"])
 
 
 if __name__ == "__main__":

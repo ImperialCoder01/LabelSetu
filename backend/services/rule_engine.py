@@ -346,7 +346,7 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
 
         field_results.append(field_res)
 
-        if evidence_status == "CONFIRMED_MISSING":
+        if status == "fail" and evidence_status != "UNREADABLE":
             if field["severity"] == "Critical":
                 critical_failures.append(field_res)
             else:
@@ -355,11 +355,10 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
     total = len(active_fields)
 
     # Score calculation:
-    # Only a photographed & readable declaration panel (has_readable_back_panel) allows establishing
-    # a statutory compliance score.
-    # If only front panel or unreadable images were uploaded, evidence is incomplete and
-    # overall_score remains None (N/A) rather than falsely reporting 0 or 100.
-    if has_readable_back_panel and not has_screenshot and pkg_identity["match"]:
+    # Any readable image (front or back) with matching package identity produces a 0-100 score.
+    # Unreadable/screenshot/mismatch images remain None or special-case scores.
+    # NOT_VISIBLE and CONFIRMED_MISSING fields both count as failures.
+    if not has_screenshot and pkg_identity["match"] and not (has_unreadable_image and not has_readable_back_panel and passed_count == 0):
         score = 100
         for f in critical_failures:
             score -= critical_weight
@@ -400,15 +399,19 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
             verification_completeness = "CONFIRMED_NON_COMPLIANCE"
             overall_status = "fail"
     elif "FRONT_PANEL" in captured_panels:
-        assessment = "FRONT_PANEL_ONLY"
-        if passed_count > 0:
-            verification_completeness = "FRONT_PANEL_ONLY"
+        # Score was already computed above. Give a real assessment.
+        if passed_count == total:
+            assessment = "COMPLIANT"
+            verification_completeness = "FULLY_VERIFIED"
+            overall_status = "pass"
+        elif passed_count > 0:
+            assessment = "PARTIALLY_COMPLIANT"
+            verification_completeness = "PARTIAL_VERIFICATION"
             overall_status = "partial"
-            score = None
         else:
-            verification_completeness = "INSUFFICIENT_EVIDENCE"
-            overall_status = "partial"
-            score = None
+            assessment = "NON_COMPLIANT"
+            verification_completeness = "CONFIRMED_NON_COMPLIANCE"
+            overall_status = "fail"
     else:
         assessment = "INSUFFICIENT_EVIDENCE"
         verification_completeness = "INSUFFICIENT_EVIDENCE"

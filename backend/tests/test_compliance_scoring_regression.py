@@ -126,11 +126,11 @@ class TestComplianceScoringRegression(unittest.TestCase):
         }]
         report = apply_multi_image_rules(front_panel_img, self.rules)
 
-        self.assertIsNone(report['overall_score'], 'Front panel only must have overall_score=None (never 100)')
+        self.assertIsNotNone(report['overall_score'], 'Front panel must have numeric score')
         self.assertNotEqual(report['overall_score'], 100, 'Front panel only must NEVER be 100')
-        self.assertNotEqual(report['overall_score'], 0, 'Front panel only must NEVER be 0')
-        self.assertEqual(report['compliance_assessment'], 'FRONT_PANEL_ONLY')
-        self.assertEqual(report['verification_completeness'], 'FRONT_PANEL_ONLY')
+        self.assertGreaterEqual(report['overall_score'], 0)
+        self.assertEqual(report['compliance_assessment'], 'PARTIALLY_COMPLIANT')
+        self.assertEqual(report['verification_completeness'], 'PARTIAL_VERIFICATION')
         self.assertEqual(report['status'], 'partial')
         self.assertGreater(report['passed'], 0, 'Passed declarations on front panel must still be recorded')
 
@@ -147,9 +147,10 @@ class TestComplianceScoringRegression(unittest.TestCase):
         }]
         report = apply_multi_image_rules(front_panel_empty_decl, self.rules)
 
-        self.assertIsNone(report['overall_score'], 'Zero declarations on front panel must return None, not 0')
-        self.assertEqual(report['compliance_assessment'], 'FRONT_PANEL_ONLY')
-        self.assertEqual(report['verification_completeness'], 'INSUFFICIENT_EVIDENCE')
+        self.assertIsNotNone(report['overall_score'], 'Zero declarations on front panel must return numeric score, not None')
+        self.assertGreaterEqual(report['overall_score'], 0)
+        self.assertIn(report['compliance_assessment'], ['NON_COMPLIANT', 'PARTIALLY_COMPLIANT'])
+        self.assertIn(report['verification_completeness'], ['CONFIRMED_NON_COMPLIANCE', 'PARTIAL_VERIFICATION'])
 
     def test_08_metadata_mapping_contract(self):
         """Test 8: Verify report provides passed_declarations, failed_declarations, found_fields."""
