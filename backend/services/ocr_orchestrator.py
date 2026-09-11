@@ -152,7 +152,7 @@ def map_local_response_to_contract(local_data: Dict[str, Any]) -> Dict[str, Any]
 def orchestrate_extract_with_scores(image_bytes: bytes, fallback_fn: Callable[[bytes], Dict[str, Any]]) -> Dict[str, Any]:
     """
     Route OCR request according to OCR_PROVIDER ('auto', 'local', 'ocr_space').
-    If local fails and OCR_LOCAL_FALLBACK_TO_CLOUD is True, fallback to OCR.space.
+    If local fails or returns empty extraction, and OCR_LOCAL_FALLBACK_TO_CLOUD is True, fallback to OCR.space.
     """
     provider = settings.OCR_PROVIDER.lower()
     
@@ -160,7 +160,11 @@ def orchestrate_extract_with_scores(image_bytes: bytes, fallback_fn: Callable[[b
         try:
             local_json = call_local_ocr(image_bytes)
             if local_json.get("success", False):
-                return map_local_response_to_contract(local_json)
+                raw_text = (local_json.get("raw_text") or "").strip()
+                lines = local_json.get("lines") or []
+                if raw_text or lines:
+                    return map_local_response_to_contract(local_json)
+                logger.warning("[OCR Orchestrator] Local OCR returned success=True but raw_text and lines are empty")
             else:
                 logger.warning("[OCR Orchestrator] Local OCR returned success=False. Reason: %s", local_json.get("error"))
         except Exception as exc:
@@ -189,7 +193,11 @@ def orchestrate_extract_text(image_bytes: bytes, fallback_fn: Callable[[bytes], 
         try:
             local_json = call_local_ocr(image_bytes)
             if local_json.get("success", False):
-                return local_json.get("raw_text", "").strip()
+                raw_text = (local_json.get("raw_text") or "").strip()
+                lines = local_json.get("lines") or []
+                if raw_text or lines:
+                    return raw_text
+                logger.warning("[OCR Orchestrator] Local OCR returned success=True but raw_text and lines are empty")
         except Exception as exc:
             logger.warning("[OCR Orchestrator] Local OCR raw_text failure: %s", exc)
             

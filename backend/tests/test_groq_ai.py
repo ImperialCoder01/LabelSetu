@@ -99,7 +99,7 @@ class TestGroqAIService(unittest.TestCase):
             "image_index": 1,
             "filename": "test.jpg",
             "raw_text": "Tata Salt 1 kg MRP Rs 28.00 Mfg 01/2026 Batch TS01",
-            "classification": {"panel_type": "PRIMARY", "classification": "PRODUCT_LABEL"},
+            "classification": {"panel_type": "BACK_DECLARATION_PANEL", "classification": "PRODUCT_LABEL"},
             "extracted_entities": {
                 "product_name": "Tata Salt",
                 "net_quantity": "1 kg",

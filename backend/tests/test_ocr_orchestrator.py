@@ -212,3 +212,73 @@ def test_ipv4_sync_backend_resolution_behavior():
         assert mock_gai.call_args[0][2] == socket.AF_INET
         mock_sock_instance.connect.assert_called_once_with(('103.84.155.153', 443))
 
+
+@patch("services.ocr_orchestrator.httpx.Client.post")
+def test_regression_local_success_with_text_returns_local_result(mock_post, mock_settings, monkeypatch):
+    """1. Local success with text -> local result returned directly."""
+    monkeypatch.setattr(settings, "OCR_PROVIDER", "auto")
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "success": True,
+        "provider": "paddleocr_local",
+        "raw_text": "NutriChoice Digestive 250g",
+        "lines": [{"text": "NutriChoice Digestive 250g", "confidence": 0.98, "bounding_box": {"x_min": 0, "y_min": 0, "x_max": 50, "y_max": 10}}]
+    }
+    mock_post.return_value = mock_resp
+
+    res = orchestrate_extract_with_scores(b"img", mock_fallback_with_scores)
+    assert res["provider"] == "paddleocr_local"
+    assert res["full_text"] == "NutriChoice Digestive 250g"
+
+
+@patch("services.ocr_orchestrator.httpx.Client.post")
+def test_regression_local_success_but_empty_text_and_lines_falls_back_to_cloud(mock_post, mock_settings, monkeypatch):
+    """2. Local success=true but empty text/lines -> invokes cloud fallback."""
+    monkeypatch.setattr(settings, "OCR_PROVIDER", "auto")
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "success": True,
+        "provider": "paddleocr_local",
+        "raw_text": "   ",
+        "lines": []
+    }
+    mock_post.return_value = mock_resp
+
+    res = orchestrate_extract_with_scores(b"img", mock_fallback_with_scores)
+    assert res["provider"] == "cloud"
+    assert res["full_text"] == "cloud fallback"
+
+
+@patch("services.ocr_orchestrator.httpx.Client.post")
+def test_regression_local_success_false_falls_back_to_cloud(mock_post, mock_settings, monkeypatch):
+    """3. Local success=false -> invokes cloud fallback."""
+    monkeypatch.setattr(settings, "OCR_PROVIDER", "auto")
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "success": False,
+        "error": "Engine inference failure"
+    }
+    mock_post.return_value = mock_resp
+
+    res = orchestrate_extract_with_scores(b"img", mock_fallback_with_scores)
+    assert res["provider"] == "cloud"
+    assert res["full_text"] == "cloud fallback"
+
+
+@patch("services.ocr_orchestrator.httpx.Client.post")
+def test_regression_fallback_disabled_and_empty_local_ocr_raises_error(mock_post, mock_settings, monkeypatch):
+    """4. Fallback disabled + empty local OCR -> raises error (cannot silently report empty success)."""
+    monkeypatch.setattr(settings, "OCR_PROVIDER", "local")
+    monkeypatch.setattr(settings, "OCR_LOCAL_FALLBACK_TO_CLOUD", False)
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "success": True,
+        "provider": "paddleocr_local",
+        "raw_text": "",
+        "lines": []
+    }
+    mock_post.return_value = mock_resp
+
+    with pytest.raises(RuntimeError, match="Local OCR failed and fallback to cloud is disabled"):
+        orchestrate_extract_with_scores(b"img", mock_fallback_with_scores)
+

@@ -234,14 +234,14 @@ def classify_image_content(image_bytes: bytes, raw_text: str, quality_info: dict
         }
 
     # 2. Unreadable Detection
-    if quality_info.get("quality_status") == "UNREADABLE" or (not text_lower.strip() and quality_info.get("blur_score", 100) < 35.0):
+    if quality_info.get("quality_status") == "UNREADABLE" or not text_lower.strip():
         return {
             "classification": "UNREADABLE_IMAGE",
             "is_product_label": True,
             "panel_type": "UNREADABLE",
             "confidence": 0.95,
-            "description": "Image is unreadable due to severe blur or poor lighting.",
-            "user_guidance": quality_info.get("user_guidance", "Retake photo with clear focus.")
+            "description": "Image contains no readable text or is severely blurred.",
+            "user_guidance": quality_info.get("user_guidance", "Retake photo with clear focus and lighting.")
         }
 
     # 3. Legal Metrology Back Declaration Panel Check
@@ -249,7 +249,14 @@ def classify_image_content(image_bytes: bytes, raw_text: str, quality_info: dict
         "manufactured by", "manufactured at", "mfg by", "mfd by", "marketed by", "mktd by",
         "packed by", "pkd by", "imported by", "mrp", "max retail price", "net qty",
         "net quantity", "net wt", "net weight", "net content", "consumer care",
-        "customer care", "unit sale price", "country of origin", "batch no", "mfg date"
+        "customer care", "unit sale price", "country of origin", "batch no", "mfg date",
+        "निर्माता", "उत्पादक", "द्वारा निर्मित", "पैक किया गया",
+        "अधिकतम खुदरा मूल्य", "खुदरा मूल्य", "एम.आर.पी.", "एमआरपी",
+        "शुद्ध मात्रा", "कुल मात्रा", "शुद्ध वजन", "कुल वजन",
+        "निर्माण तिथि", "उत्पादन तिथि", "पैकिंग तिथि",
+        "उपभोक्ता सेवा", "ग्राहक सेवा", "हेल्पलाइन",
+        "प्रति इकाई विक्रय मूल्य", "प्रति इकाई मूल्य",
+        "उत्पत्ति का देश", "भारत में निर्मित", "बैच नं", "बैच संख्या"
     ]
     back_matches = [kw for kw in back_panel_keywords if kw in text_lower]
 

@@ -221,7 +221,7 @@ class TestMultiImageEvidence(unittest.TestCase):
         self.assertNotEqual(extracted["net_quantity"], "2.601ml")
 
     def test_verification_completeness_states(self):
-        """Verify verification_completeness state separation (NO_CONFIRMED_VIOLATION vs FULLY_VERIFIED)."""
+        """Verify verification_completeness state separation (FRONT_PANEL_ONLY with overall_score=None vs FULLY_VERIFIED)."""
         front_img = {
             "image_index": 1,
             "filename": "front.jpg",
@@ -231,8 +231,8 @@ class TestMultiImageEvidence(unittest.TestCase):
             "extracted_entities": {"net_quantity": "60g"},
         }
         report = apply_multi_image_rules([front_img], self.rules)
-        self.assertEqual(report["verification_completeness"], "NO_CONFIRMED_VIOLATION")
-        self.assertEqual(report["overall_score"], 100)
+        self.assertEqual(report["verification_completeness"], "FRONT_PANEL_ONLY")
+        self.assertIsNone(report["overall_score"])
         self.assertEqual(report["structured_coverage"]["manufacturing_date"], "NOT_VISIBLE")
 
     def test_whitespace_and_currency_formatting_not_conflicting(self):

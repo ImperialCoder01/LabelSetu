@@ -177,39 +177,55 @@ def normalize_ocr_text_contextual(raw_text: str) -> str:
     return text
 
 
+def _extract_cloud_enhanced(image_bytes: bytes) -> str:
+    """Enhance raw image bytes before sending to cloud OCR (OCR.space)."""
+    enhanced_image, _ = enhance_image_for_ocr(image_bytes)
+    return _extract_cloud(enhanced_image)
+
+
+def _extract_cloud_with_scores_enhanced(image_bytes: bytes) -> dict:
+    """Enhance raw image bytes before sending to cloud OCR with scores."""
+    enhanced_image, was_enhanced = enhance_image_for_ocr(image_bytes)
+    res = _extract_cloud_with_scores(enhanced_image)
+    res["enhanced"] = was_enhanced
+    return res
+
+
 def extract_text(image: bytes) -> str:
     """
-    Extract text from a product-label image using OCR.space.
-    Automatically applies OpenCV enhancement. Returns empty string on failure.
+    Extract text from a product-label image.
+    Sends raw image bytes directly to local OCR without aggressive filtering.
+    Applies OpenCV enhancement only if cloud OCR is used. Returns empty string on failure.
     """
-    enhanced_image, _ = enhance_image_for_ocr(image)
     try:
-        return orchestrate_extract_text(enhanced_image, _extract_cloud)
+        return orchestrate_extract_text(image, _extract_cloud_enhanced)
     except Exception as exc:
-        logger.warning("[OCR] Cloud OCR failed (%s)", exc)
+        logger.warning("[OCR] OCR failed (%s)", exc)
         return ""
 
 
 def extract_text_with_scores(image: bytes) -> dict:
     """
-    Extract text from an image using OCR.space, run custom package entity extractor model,
+    Extract text from an image, run custom package entity extractor model,
     and return detections with confidence scores.
+    Sends raw image bytes directly to local OCR without aggressive filtering.
+    Applies OpenCV enhancement only if cloud OCR is used.
     Always returns a valid dictionary and never raises uncaught exceptions.
     """
-    enhanced_image, was_enhanced = enhance_image_for_ocr(image)
     try:
-        res = orchestrate_extract_with_scores(enhanced_image, _extract_cloud_with_scores)
+        res = orchestrate_extract_with_scores(image, _extract_cloud_with_scores_enhanced)
     except Exception as exc:
-        logger.warning("[OCR] Cloud OCR failed (%s), returning safe unavailable structure", exc)
+        logger.warning("[OCR] OCR extraction failed (%s), returning safe unavailable structure", exc)
         res = {
             "provider": "cloud (unavailable)",
             "full_text": "",
             "detections": [],
             "average_confidence": 0.0,
-            "error": f"Cloud OCR unavailable: {str(exc)}"
+            "error": f"OCR unavailable: {str(exc)}"
         }
 
-    res["enhanced"] = was_enhanced
+    if "enhanced" not in res:
+        res["enhanced"] = False
     raw_full_text = res.get("full_text", "")
     normalized_full_text = normalize_ocr_text_contextual(raw_full_text)
 

@@ -220,13 +220,22 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
 
     for img_res in unique_image_results:
         panel = img_res.get("classification", {}).get("panel_type", "UNKNOWN")
-        captured_panels.add(panel)
+        if panel in ("FRONT", "FRONT_PANEL"):
+            captured_panels.add("FRONT_PANEL")
+        elif panel in ("BACK", "BACK_PANEL", "BACK_DECLARATION_PANEL", "DECLARATION_PANEL"):
+            captured_panels.add("BACK_DECLARATION_PANEL")
+        else:
+            captured_panels.add(panel)
 
         q_status = img_res.get("quality_info", {}).get("quality_status", "GOOD")
-        if q_status == "UNREADABLE":
+        raw_text_exists = bool(img_res.get("raw_text", "").strip())
+        
+        if q_status == "UNREADABLE" or not raw_text_exists:
             has_unreadable_image = True
-        if panel in ("BACK_DECLARATION_PANEL", "MIXED_PANEL") and q_status in ("GOOD", "FAIR", "POOR"):
+            
+        if panel in ("BACK_DECLARATION_PANEL", "MIXED_PANEL", "BACK", "BACK_PANEL", "DECLARATION_PANEL") and q_status in ("GOOD", "FAIR", "POOR") and raw_text_exists:
             has_readable_back_panel = True
+            
         if img_res.get("classification", {}).get("classification") == "SCREENSHOT":
             has_screenshot = True
 
@@ -345,8 +354,12 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
 
     total = len(active_fields)
 
-    # Score calculation: only assessable declarations influence the score
-    if assessable_count > 0:
+    # Score calculation:
+    # Only a photographed & readable declaration panel (has_readable_back_panel) allows establishing
+    # a statutory compliance score.
+    # If only front panel or unreadable images were uploaded, evidence is incomplete and
+    # overall_score remains None (N/A) rather than falsely reporting 0 or 100.
+    if has_readable_back_panel and not has_screenshot and pkg_identity["match"]:
         score = 100
         for f in critical_failures:
             score -= critical_weight
@@ -372,27 +385,30 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
         verification_completeness = "UNREADABLE"
         overall_status = "partial"
         score = None
-    elif len(critical_failures) > 0 or len(minor_failures) > 0:
-        assessment = "PARTIALLY_COMPLIANT" if passed_count > 0 else "NON_COMPLIANT"
-        verification_completeness = "CONFIRMED_NON_COMPLIANCE"
-        overall_status = "partial" if passed_count > 0 else "fail"
-    elif passed_count == total and assessable_count == total:
-        assessment = "COMPLIANT"
-        verification_completeness = "FULLY_VERIFIED"
-        overall_status = "pass"
-    elif "FRONT_PANEL" in captured_panels and not has_readable_back_panel:
+    elif has_readable_back_panel:
+        if passed_count == total:
+            assessment = "COMPLIANT"
+            verification_completeness = "FULLY_VERIFIED"
+            overall_status = "pass"
+            score = 100
+        elif passed_count > 0:
+            assessment = "PARTIALLY_COMPLIANT"
+            verification_completeness = "CONFIRMED_NON_COMPLIANCE"
+            overall_status = "partial"
+        else:
+            assessment = "NON_COMPLIANT"
+            verification_completeness = "CONFIRMED_NON_COMPLIANCE"
+            overall_status = "fail"
+    elif "FRONT_PANEL" in captured_panels:
         assessment = "FRONT_PANEL_ONLY"
         if passed_count > 0:
-            verification_completeness = "NO_CONFIRMED_VIOLATION"
+            verification_completeness = "FRONT_PANEL_ONLY"
             overall_status = "partial"
+            score = None
         else:
             verification_completeness = "INSUFFICIENT_EVIDENCE"
             overall_status = "partial"
             score = None
-    elif passed_count > 0 and assessable_count < total:
-        assessment = "PARTIALLY_VERIFIED"
-        verification_completeness = "NO_CONFIRMED_VIOLATION"
-        overall_status = "partial"
     else:
         assessment = "INSUFFICIENT_EVIDENCE"
         verification_completeness = "INSUFFICIENT_EVIDENCE"
@@ -421,6 +437,9 @@ def apply_multi_image_rules(image_results: list, rules: dict) -> dict:
         "total_fields": total,
         "passed": passed_count,
         "failed": total - passed_count,
+        "passed_declarations": passed_count,
+        "failed_declarations": total - passed_count,
+        "found_fields": [f["field_id"] for f in field_results if f.get("status") == "pass"],
         "critical_failures": critical_failures,
         "minor_failures": minor_failures,
         "fields": field_results,

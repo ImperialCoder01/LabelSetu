@@ -147,9 +147,10 @@ export default function MyScansPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredScans.map((scan) => {
-            const score = scan.compliance_score || 0;
-            const isPassed = score >= 80;
-            const isPartial = score >= 50 && score < 80;
+            const hasScore = scan.compliance_score !== null && scan.compliance_score !== undefined;
+            const score = hasScore ? scan.compliance_score : null;
+            const isPassed = hasScore && score >= 80;
+            const isPartial = hasScore && score >= 50 && score < 80;
             const title = getScanTitle(scan);
             const dateStr = scan.created_at
               ? new Date(scan.created_at).toLocaleDateString("en-IN", {
@@ -171,14 +172,22 @@ export default function MyScansPage() {
                   <div className="flex items-center justify-between mb-3">
                     <span
                       className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md ${
-                        isPassed
+                        !hasScore
+                          ? "bg-slate-100 text-slate-700 border border-slate-200"
+                          : isPassed
                           ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                           : isPartial
                           ? "bg-amber-50 text-amber-700 border border-amber-200"
                           : "bg-red-50 text-red-700 border border-red-200"
                       }`}
                     >
-                      {isPassed ? "Compliant" : isPartial ? "Attention" : "Violation"}
+                      {!hasScore
+                        ? (scan.metadata?.compliance_assessment === "FRONT_PANEL_ONLY"
+                            ? "Front Only"
+                            : scan.metadata?.compliance_assessment === "UNREADABLE_IMAGE"
+                            ? "Unreadable"
+                            : "Incomplete")
+                        : isPassed ? "Compliant" : isPartial ? "Attention" : "Violation"}
                     </span>
                     <span className="text-xs font-mono font-bold text-slate-400">{dateStr}</span>
                   </div>
@@ -199,8 +208,8 @@ export default function MyScansPage() {
                 <div className="pt-4 mt-4 border-t border-slate-100 flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-medium text-slate-500">Score:</span>
-                    <span className={`text-xs font-black ${isPassed ? "text-emerald-600" : isPartial ? "text-amber-600" : "text-red-600"}`}>
-                      {score}/100
+                    <span className={`text-xs font-black ${!hasScore ? "text-slate-500" : isPassed ? "text-emerald-600" : isPartial ? "text-amber-600" : "text-red-600"}`}>
+                      {hasScore ? `${score}/100` : "N/A"}
                     </span>
                   </div>
                   <span className="text-xs font-bold text-emerald-600 hover:underline">
@@ -225,12 +234,24 @@ export default function MyScansPage() {
             <div className="card-slate p-4 flex items-center justify-between">
               <div>
                 <span className="text-xs text-slate-500 font-bold uppercase">Overall Compliance</span>
-                <p className="text-2xl font-black text-slate-900">{selectedScan.compliance_score || 0} / 100</p>
+                <p className="text-2xl font-black text-slate-900">
+                  {selectedScan.compliance_score !== null && selectedScan.compliance_score !== undefined
+                    ? `${selectedScan.compliance_score} / 100`
+                    : "N/A"}
+                </p>
               </div>
               <span className={`text-xs font-extrabold px-3 py-1 rounded-lg ${
-                (selectedScan.compliance_score || 0) >= 80 ? "badge-compliant" : (selectedScan.compliance_score || 0) >= 50 ? "badge-warning" : "badge-violation"
+                selectedScan.compliance_score === null || selectedScan.compliance_score === undefined
+                  ? "bg-slate-100 text-slate-700 border border-slate-200"
+                  : (selectedScan.compliance_score || 0) >= 80 ? "badge-compliant" : (selectedScan.compliance_score || 0) >= 50 ? "badge-warning" : "badge-violation"
               }`}>
-                {(selectedScan.compliance_score || 0) >= 80 ? "Compliant" : (selectedScan.compliance_score || 0) >= 50 ? "Requires Attention" : "Potential Violation"}
+                {selectedScan.compliance_score === null || selectedScan.compliance_score === undefined
+                  ? (selectedScan.metadata?.compliance_assessment === "FRONT_PANEL_ONLY"
+                      ? "Front Only / Incomplete"
+                      : selectedScan.metadata?.compliance_assessment === "UNREADABLE_IMAGE"
+                      ? "Unreadable Image"
+                      : "Insufficient Evidence")
+                  : (selectedScan.compliance_score || 0) >= 80 ? "Compliant" : (selectedScan.compliance_score || 0) >= 50 ? "Requires Attention" : "Potential Violation"}
               </span>
             </div>
 

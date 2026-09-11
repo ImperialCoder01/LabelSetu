@@ -107,8 +107,9 @@ def test_rule_engine():
     print("=" * 60)
     assert report["status"] == "partial", f"Expected 'partial', got '{report['status']}'"
     assert report2["status"] == "pass", f"Expected 'pass', got '{report2['status']}'"
-    assert report2["overall_score"] == 100, f"Expected 100, got {report2['overall_score']}"
-    assert report4["status"] == "fail", f"Expected 'fail', got '{report4['status']}'"
+    assert report4["overall_score"] is None, f"Expected None, got {report4['overall_score']}"
+    assert report4["status"] == "partial", f"Expected 'partial', got '{report4['status']}'"
+    assert report4["compliance_assessment"] == "UNREADABLE_IMAGE", f"Expected 'UNREADABLE_IMAGE', got '{report4['compliance_assessment']}'"
     assert compat["score"] == report["overall_score"]
     assert "report" in compat
     print("ALL TESTS PASSED")

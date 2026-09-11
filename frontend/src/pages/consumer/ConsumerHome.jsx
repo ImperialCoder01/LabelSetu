@@ -241,9 +241,10 @@ export default function ConsumerHome() {
         ) : (
           <div className="space-y-2.5">
             {scans.slice(0, 5).map((scan) => {
-              const score = scan.compliance_score || 0;
-              const isPassed = score >= 80;
-              const isPartial = score >= 50 && score < 80;
+              const hasScore = scan.compliance_score !== null && scan.compliance_score !== undefined;
+              const score = hasScore ? scan.compliance_score : null;
+              const isPassed = hasScore && score >= 80;
+              const isPartial = hasScore && score >= 50 && score < 80;
               const dateStr = scan.created_at
                 ? new Date(scan.created_at).toLocaleDateString("en-IN", {
                     day: "numeric",
@@ -263,14 +264,16 @@ export default function ConsumerHome() {
                   <div className="flex items-center gap-3 min-w-0">
                     <div
                       className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-xs flex-shrink-0 ${
-                        isPassed
+                        !hasScore
+                          ? "bg-slate-100 text-slate-600 border border-slate-200"
+                          : isPassed
                           ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
                           : isPartial
                           ? "bg-amber-100 text-amber-800 border border-amber-200"
                           : "bg-red-100 text-red-800 border border-red-200"
                       }`}
                     >
-                      {score}%
+                      {hasScore ? `${score}%` : "N/A"}
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-slate-900 truncate">
@@ -283,14 +286,22 @@ export default function ConsumerHome() {
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span
                       className={`text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-md ${
-                        isPassed
+                        !hasScore
+                          ? "bg-slate-100 text-slate-700 border border-slate-200"
+                          : isPassed
                           ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                           : isPartial
                           ? "bg-amber-50 text-amber-700 border border-amber-200"
                           : "bg-red-50 text-red-700 border border-red-200"
                       }`}
                     >
-                      {isPassed ? "Compliant" : isPartial ? "Attention" : "Violation"}
+                      {!hasScore
+                        ? (scan.metadata?.compliance_assessment === "FRONT_PANEL_ONLY"
+                            ? "Front Only"
+                            : scan.metadata?.compliance_assessment === "UNREADABLE_IMAGE"
+                            ? "Unreadable"
+                            : "Incomplete")
+                        : isPassed ? "Compliant" : isPartial ? "Attention" : "Violation"}
                     </span>
                     <button
                       type="button"
@@ -321,12 +332,24 @@ export default function ConsumerHome() {
             <div className="card-slate p-4 flex items-center justify-between">
               <div>
                 <span className="text-xs text-slate-500 font-bold uppercase">Compliance Score</span>
-                <p className="text-2xl font-black text-slate-900">{selectedScan.compliance_score || 0} / 100</p>
+                <p className="text-2xl font-black text-slate-900">
+                  {selectedScan.compliance_score !== null && selectedScan.compliance_score !== undefined
+                    ? `${selectedScan.compliance_score} / 100`
+                    : "N/A"}
+                </p>
               </div>
               <span className={`text-xs font-extrabold px-3 py-1 rounded-lg ${
-                (selectedScan.compliance_score || 0) >= 80 ? "badge-compliant" : "badge-violation"
+                selectedScan.compliance_score === null || selectedScan.compliance_score === undefined
+                  ? "bg-slate-100 text-slate-700 border border-slate-200"
+                  : (selectedScan.compliance_score || 0) >= 80 ? "badge-compliant" : "badge-violation"
               }`}>
-                {(selectedScan.compliance_score || 0) >= 80 ? "Pass" : "Non-Compliant"}
+                {selectedScan.compliance_score === null || selectedScan.compliance_score === undefined
+                  ? (selectedScan.metadata?.compliance_assessment === "FRONT_PANEL_ONLY"
+                      ? "Front Only / Incomplete"
+                      : selectedScan.metadata?.compliance_assessment === "UNREADABLE_IMAGE"
+                      ? "Unreadable Image"
+                      : "Insufficient Evidence")
+                  : (selectedScan.compliance_score || 0) >= 80 ? "Pass" : "Non-Compliant"}
               </span>
             </div>
 

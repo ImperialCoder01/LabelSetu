@@ -319,16 +319,18 @@ async def scan(
         "user_id": user["sub"],
         "image_url": "",
         "extracted_text": full_text[:5000],
-        "compliance_score": compliance_report["overall_score"] if compliance_report["overall_score"] is not None else 0,
+        "compliance_score": compliance_report.get("overall_score"),
         "missing_fields": missing_field_ids,
         "product_name": resolved_product_name,
         "brand": resolved_brand,
         "barcode": resolved_barcode,
         "metadata": {
             "status": compliance_report.get("status", "unknown"),
-            "passed_declarations": compliance_report.get("passed_declarations", 0),
-            "failed_declarations": compliance_report.get("failed_declarations", 0),
-            "found_fields": compliance_report.get("found_fields", []),
+            "compliance_assessment": compliance_report.get("compliance_assessment", "unknown"),
+            "verification_completeness": compliance_report.get("verification_completeness", "unknown"),
+            "passed_declarations": compliance_report.get("passed", 0),
+            "failed_declarations": compliance_report.get("failed", 0),
+            "found_fields": [f["field_id"] for f in compliance_report.get("fields", []) if f.get("status") == "pass"],
             "user_role": user_role,
             "image_count": len(image_results),
         }
@@ -347,7 +349,7 @@ async def scan(
                 "user_id": user["sub"],
                 "image_url": "",
                 "extracted_text": full_text[:5000],
-                "compliance_score": compliance_report["overall_score"] if compliance_report["overall_score"] is not None else 0,
+                "compliance_score": compliance_report.get("overall_score"),
                 "missing_fields": json.dumps(missing_field_ids),
             }
             db_result = supabase.table("scans").insert(fallback_data).execute()

@@ -578,11 +578,27 @@ export default function ScanProductPage() {
           {(() => {
             const comp = lastResult.compliance || {};
             const score = comp.overall_score !== undefined && comp.overall_score !== null ? comp.overall_score : null;
+            const assessment = comp.compliance_assessment || "";
             const completeness = comp.verification_completeness || "ASSESSED";
             const coverage = comp.evidence_coverage || "8/8 declarations assessable";
             const isAssessable = score !== null;
             const isCompliant = isAssessable && score >= 80;
-            const isInsufficient = !isAssessable || completeness === "INSUFFICIENT_EVIDENCE" || completeness === "UNREADABLE";
+
+            let badgeText = completeness;
+            let statusExplanation = "Evaluated against the Legal Metrology (Packaged Commodities) Rules, 2011.";
+
+            if (!isAssessable) {
+              if (assessment === "UNREADABLE_IMAGE" || completeness === "UNREADABLE") {
+                badgeText = "Unable to verify — Image unreadable";
+                statusExplanation = "Image quality is unreadable or blurry. Retake photo with clear focus and steady lighting.";
+              } else if (assessment === "FRONT_PANEL_ONLY" || completeness === "FRONT_PANEL_ONLY") {
+                badgeText = "Partial Verification — Back panel required";
+                statusExplanation = "Front branding panel detected. Upload a photo of the back/side declaration panel for full Legal Metrology verification.";
+              } else {
+                badgeText = "N/A — Insufficient Evidence";
+                statusExplanation = "Insufficient packaging evidence to determine statutory compliance. Upload clear photos of all package panels.";
+              }
+            }
 
             return (
               <div className="card-slate p-6 sm:p-8 bg-gradient-to-br from-slate-900 to-slate-850 text-white shadow-xl">
@@ -590,13 +606,13 @@ export default function ScanProductPage() {
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-md border ${
-                        isInsufficient
+                        !isAssessable
                           ? "bg-amber-950 text-amber-400 border-amber-800"
                           : isCompliant
                             ? "bg-emerald-950 text-emerald-400 border-emerald-800"
                             : "bg-red-950 text-red-400 border-red-800"
                       }`}>
-                        {completeness}
+                        {badgeText}
                       </span>
                       <span className="text-xs text-slate-400 font-mono">
                         {coverage}
@@ -607,7 +623,7 @@ export default function ScanProductPage() {
                       {lastResult.classification?.product_name || "Packaged Commodity"}
                     </h3>
                     <p className="text-xs text-slate-300">
-                      Evaluated against the Legal Metrology (Packaged Commodities) Rules, 2011.
+                      {statusExplanation}
                     </p>
                   </div>
 

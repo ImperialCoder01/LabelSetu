@@ -110,6 +110,68 @@ class TestOCRResilience(unittest.TestCase):
         self.assertIn("fields", rep)
         self.assertIn("status", rep)
 
+    def test_08_local_ocr_receives_pristine_raw_image_bytes(self):
+        """Test 8: Local PaddleOCR receives pristine, unenhanced raw bytes directly."""
+        from config import settings
+        with patch.object(settings, "OCR_PROVIDER", "local"), \
+             patch.object(settings, "LOCAL_OCR_ENABLED", True), \
+             patch("services.ocr_orchestrator.call_local_ocr") as mock_local:
+            mock_local.return_value = {
+                "success": True,
+                "provider": "paddleocr_local",
+                "raw_text": "Sample Text",
+                "lines": [{"text": "Sample Text", "confidence": 0.95}]
+            }
+            res = extract_text_with_scores(self.raw_bytes)
+            mock_local.assert_called_once()
+            called_bytes = mock_local.call_args[0][0]
+            self.assertEqual(called_bytes, self.raw_bytes, "Local OCR must receive original raw bytes without CLAHE/unsharp preprocessing")
+            self.assertFalse(res.get("enhanced"), "Local OCR scan should record enhanced=False")
+
+    def test_09_cloud_ocr_receives_enhanced_image_bytes(self):
+        """Test 9: Cloud OCR continues receiving OpenCV enhanced bytes."""
+        from config import settings
+        with patch.object(settings, "OCR_PROVIDER", "cloud"), \
+             patch("services.ocr_service._extract_cloud_with_scores") as mock_cloud:
+            mock_cloud.return_value = {
+                "provider": "cloud",
+                "full_text": "Sample Cloud Text",
+                "detections": [],
+                "average_confidence": 0.95
+            }
+            res = extract_text_with_scores(self.raw_bytes)
+            mock_cloud.assert_called_once()
+            called_bytes = mock_cloud.call_args[0][0]
+            # Verify called_bytes was transformed (enhanced) and is not the raw bytes
+            self.assertTrue(res.get("enhanced"), "Cloud OCR scan should record enhanced=True")
+
+    def test_10_empty_local_ocr_falls_back_to_enhanced_cloud_ocr(self):
+        """Test 10: When local OCR returns empty text/lines, cloud fallback receives enhanced bytes."""
+        from config import settings
+        with patch.object(settings, "OCR_PROVIDER", "auto"), \
+             patch.object(settings, "LOCAL_OCR_ENABLED", True), \
+             patch.object(settings, "OCR_LOCAL_FALLBACK_TO_CLOUD", True), \
+             patch("services.ocr_orchestrator.call_local_ocr") as mock_local, \
+             patch("services.ocr_service._extract_cloud_with_scores") as mock_cloud:
+            mock_local.return_value = {
+                "success": True,
+                "provider": "paddleocr_local",
+                "raw_text": "",
+                "lines": []
+            }
+            mock_cloud.return_value = {
+                "provider": "cloud",
+                "full_text": "Cloud Fallback Text",
+                "detections": [],
+                "average_confidence": 0.90
+            }
+            res = extract_text_with_scores(self.raw_bytes)
+            mock_local.assert_called_once()
+            mock_cloud.assert_called_once()
+            self.assertEqual(res["provider"], "cloud")
+            self.assertEqual(res["full_text"], "Cloud Fallback Text")
+            self.assertTrue(res.get("enhanced"))
+
 
 if __name__ == "__main__":
     unittest.main()

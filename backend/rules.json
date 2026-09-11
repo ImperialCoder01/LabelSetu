@@ -21,7 +21,12 @@
         "imported by",
         "imported by name and address",
         "manufacturer",
-        "factory"
+        "factory",
+        "निर्माता",
+        "उत्पादक",
+        "द्वारा निर्मित",
+        "पैक किया गया",
+        "मार्केटेड बाय"
       ],
       "description": "Name and complete address of the manufacturer, packer, or importer must be declared"
     },
@@ -39,7 +44,11 @@
         "item name",
         "name of commodity",
         "trade name",
-        "name"
+        "name",
+        "उत्पाद का नाम",
+        "सामग्री का नाम",
+        "उत्पाद",
+        "ब्रांड"
       ],
       "description": "Generic name or trade name of the product must be clearly visible"
     },
@@ -57,14 +66,40 @@
         "contents",
         "net contents",
         "standard weight",
-        "standard quantity"
+        "standard quantity",
+        "शुद्ध मात्रा",
+        "मात्रा",
+        "वजन",
+        "कुल वजन",
+        "शुद्ध वजन"
       ],
       "units": [
-        "kg", "g", "gm", "mg", "kg",
-        "l", "lt", "ltr", "ltrs", "litre", "litres",
-        "ml", "mlt",
-        "m", "cm", "mm",
-        "pcs", "pieces", "nos", "count"
+        "kg",
+        "g",
+        "gm",
+        "mg",
+        "kg",
+        "l",
+        "lt",
+        "ltr",
+        "ltrs",
+        "litre",
+        "litres",
+        "ml",
+        "mlt",
+        "m",
+        "cm",
+        "mm",
+        "pcs",
+        "pieces",
+        "nos",
+        "count",
+        "ग्राम",
+        "किग्रा",
+        "किलोग्राम",
+        "मिली",
+        "मिलीलीटर",
+        "लीटर"
       ],
       "description": "Net quantity of the commodity in weight, volume, or number of units"
     },
@@ -84,7 +119,13 @@
         "made on",
         "prod date",
         "production date",
-        "date of production"
+        "date of production",
+        "निर्माण तिथि",
+        "उत्पादन तिथि",
+        "पैकिंग तिथि",
+        "निर्मित तिथि",
+        "पैकिंग की तारीख",
+        "निर्माण की तारीख"
       ],
       "description": "Date of manufacturing or pre-packaging must be declared"
     },
@@ -99,9 +140,22 @@
         "mrp incl. of all taxes",
         "mrp rs",
         "retail price",
-        "maximum price"
+        "maximum price",
+        "अधिकतम खुदरा मूल्य",
+        "खुदरा मूल्य",
+        "एम.आर.पी.",
+        "एमआरपी",
+        "अधिकतम मूल्य"
       ],
-      "currency_symbols": ["₹", "rs", "inr", "rupees"],
+      "currency_symbols": [
+        "₹",
+        "rs",
+        "inr",
+        "rupees",
+        "रु",
+        "रुपये",
+        "रू"
+      ],
       "description": "Maximum retail price inclusive of all taxes must be printed"
     },
     {
@@ -124,7 +178,12 @@
         "customer support",
         "care line",
         "care@",
-        "support@"
+        "support@",
+        "उपभोक्ता सेवा",
+        "ग्राहक सेवा",
+        "हेल्पलाइन",
+        "उपभोक्ता सहायता",
+        "ग्राहक सहायता"
       ],
       "description": "Contact details (phone/email) for consumer complaints or feedback"
     },
@@ -139,7 +198,11 @@
         "unit price",
         "price per unit",
         "rsp",
-        "retail sale price"
+        "retail sale price",
+        "प्रति इकाई विक्रय मूल्य",
+        "प्रति इकाई मूल्य",
+        "इकाई विक्रय मूल्य",
+        "इकाई मूल्य"
       ],
       "description": "Unit sale price (price per kg, litre, or unit) as per declared net quantity"
     },
@@ -156,7 +219,10 @@
         "imported from",
         "produced in",
         "country",
-        "origin country"
+        "origin country",
+        "उत्पत्ति का देश",
+        "भारत में निर्मित",
+        "उत्पत्ति देश"
       ],
       "description": "Country of origin must be declared; for imports, the country must be clearly stated"
     }
