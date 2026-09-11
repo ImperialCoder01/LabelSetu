@@ -188,10 +188,27 @@ def test_stage6a_ipv4_transport_configured(mock_client_cls, mock_settings, monke
     res = orchestrate_extract_with_scores(b"sample_img", mock_fallback_with_scores)
     assert res["provider"] == "paddleocr_local"
     
-    # Verify Client was initialized with HTTPTransport(local_address="0.0.0.0")
+    # Verify Client was initialized with HTTPTransport using IPv4SyncBackend
     mock_client_cls.assert_called_once()
     kwargs = mock_client_cls.call_args[1]
     transport = kwargs.get("transport")
     assert isinstance(transport, httpx.HTTPTransport)
-    assert transport._pool._local_address == "0.0.0.0"
+    from services.ocr_orchestrator import IPv4SyncBackend
+    assert isinstance(transport._pool._network_backend, IPv4SyncBackend)
+
+
+def test_ipv4_sync_backend_resolution_behavior():
+    from services.ocr_orchestrator import IPv4SyncBackend
+    backend = IPv4SyncBackend()
+    import socket
+    with patch("socket.getaddrinfo") as mock_gai, patch("socket.socket") as mock_sock:
+        # Verify getaddrinfo is strictly called with AF_INET (IPv4 only)
+        mock_sock_instance = MagicMock()
+        mock_sock.return_value = mock_sock_instance
+        mock_gai.return_value = [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('103.84.155.153', 443))
+        ]
+        stream = backend.connect_tcp("test.host.net", 443, timeout=5.0)
+        assert mock_gai.call_args[0][2] == socket.AF_INET
+        mock_sock_instance.connect.assert_called_once_with(('103.84.155.153', 443))
 

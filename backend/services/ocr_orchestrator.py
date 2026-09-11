@@ -1,10 +1,77 @@
 import logging
+import socket
+import typing
 import httpx
+import httpcore
+from httpcore._backends.sync import SyncStream, map_exceptions
 from typing import Dict, Any, Callable
 
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class IPv4SyncBackend(httpcore.SyncBackend):
+    """
+    Network backend enforcing deterministic IPv4 DNS resolution and connection.
+    Prevents [Errno 101] Network is unreachable and [Errno -9] EAI_ADDRFAMILY
+    in IPv4-only cloud container environments (e.g. Render/AWS).
+    """
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: typing.Iterable[typing.Any] | None = None,
+    ) -> httpcore.NetworkStream:
+        exc_map = {
+            socket.timeout: httpcore.ConnectTimeout,
+            OSError: httpcore.ConnectError,
+        }
+        with map_exceptions(exc_map):
+            addrinfo = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+            if not addrinfo:
+                raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+            sock = None
+            exceptions = []
+            for af, socktype, proto, canonname, sa in addrinfo:
+                try:
+                    sock = socket.socket(af, socktype, proto)
+                    if timeout is not None:
+                        sock.settimeout(timeout)
+                    sock.connect(sa)
+                    exceptions.clear()
+                    break
+                except OSError as exc:
+                    exceptions.append(exc)
+                    if sock is not None:
+                        sock.close()
+                    sock = None
+
+            if sock is None:
+                if exceptions:
+                    raise exceptions[-1]
+                raise httpcore.ConnectError(f"Failed to connect to {host}:{port} via IPv4")
+
+            if socket_options:
+                for option in socket_options:
+                    sock.setsockopt(*option)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+        return SyncStream(sock)
+
+
+def _create_ipv4_transport() -> httpx.HTTPTransport:
+    transport = httpx.HTTPTransport()
+    transport._pool = httpcore.ConnectionPool(
+        ssl_context=transport._pool._ssl_context,
+        network_backend=IPv4SyncBackend(),
+        retries=0,
+    )
+    return transport
+
 
 def call_local_ocr(image_bytes: bytes) -> Dict[str, Any]:
     """Call the standalone local OCR service via HTTP."""
@@ -19,7 +86,7 @@ def call_local_ocr(image_bytes: bytes) -> Dict[str, Any]:
     
     logger.info("[OCR Orchestrator] Calling local OCR at %s (timeout=%.1fs)", url, settings.LOCAL_OCR_TIMEOUT_SECONDS)
     
-    transport = httpx.HTTPTransport(local_address="0.0.0.0")
+    transport = _create_ipv4_transport()
     with httpx.Client(transport=transport, timeout=settings.LOCAL_OCR_TIMEOUT_SECONDS) as client:
         response = client.post(url, files=files, headers=headers)
         response.raise_for_status()
