@@ -173,3 +173,25 @@ def test_stage4_api_key_never_in_logs(mock_post, mock_settings, monkeypatch, cap
     for record in caplog.records:
         assert secret_key not in record.message
 
+
+@patch("services.ocr_orchestrator.httpx.Client")
+def test_stage6a_ipv4_transport_configured(mock_client_cls, mock_settings, monkeypatch):
+    monkeypatch.setattr(settings, "OCR_PROVIDER", "auto")
+    monkeypatch.setattr(settings, "LOCAL_OCR_URL", "https://lenovo-loq.taile99993.ts.net")
+    
+    mock_instance = MagicMock()
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"success": True, "provider": "paddleocr_local", "raw_text": "text", "lines": []}
+    mock_instance.post.return_value = mock_resp
+    mock_client_cls.return_value.__enter__.return_value = mock_instance
+    
+    res = orchestrate_extract_with_scores(b"sample_img", mock_fallback_with_scores)
+    assert res["provider"] == "paddleocr_local"
+    
+    # Verify Client was initialized with HTTPTransport(local_address="0.0.0.0")
+    mock_client_cls.assert_called_once()
+    kwargs = mock_client_cls.call_args[1]
+    transport = kwargs.get("transport")
+    assert isinstance(transport, httpx.HTTPTransport)
+    assert transport._pool._local_address == "0.0.0.0"
+

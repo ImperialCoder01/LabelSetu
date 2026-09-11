@@ -19,7 +19,8 @@ def call_local_ocr(image_bytes: bytes) -> Dict[str, Any]:
     
     logger.info("[OCR Orchestrator] Calling local OCR at %s (timeout=%.1fs)", url, settings.LOCAL_OCR_TIMEOUT_SECONDS)
     
-    with httpx.Client(timeout=settings.LOCAL_OCR_TIMEOUT_SECONDS) as client:
+    transport = httpx.HTTPTransport(local_address="0.0.0.0")
+    with httpx.Client(transport=transport, timeout=settings.LOCAL_OCR_TIMEOUT_SECONDS) as client:
         response = client.post(url, files=files, headers=headers)
         response.raise_for_status()
         
